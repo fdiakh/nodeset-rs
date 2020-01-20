@@ -28,9 +28,8 @@ pub struct IdRangeSet {
 }
 
 struct VecDifference<'a, T> {
-    min: std::slice::Iter<'a, T>,
-    sub: std::slice::Iter<'a, T>,
-    next_sub: Option<&'a T>
+    a: std::slice::Iter<'a, T>,
+    b: &'a[T]
 }
 
 struct VecIntersection<'a, T> {
@@ -68,32 +67,32 @@ impl IdRangeList {
 }
 
  impl<'a, T> Iterator for VecDifference<'a, T> 
-    where T: PartialOrd + std::fmt::Debug
+    where T: Ord + std::fmt::Debug
 {
     type Item = &'a T;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        //println!("next called");
-        let mut next_min = match self.min.next() {
-            None => return None,
-            Some(min) => min
+    fn next(&mut self) -> Option<Self::Item> {        
+        let mut next = match self.a.next() {
+            Some(v) => v,
+            None => return None
         };
-        //println!("start loop, next_min {:?}, next_sub {:?}", next_min, self.next_sub);
-        loop {
-            match self.next_sub {
-               None => return Some(next_min),
-               Some(sub) if sub > next_min => return Some(next_min),
-               Some(sub) if sub == next_min => {
-                    next_min = match self.min.next() {
-                        None => return None,
-                        Some(min) => min
-                    };
-               }            
-               _ => self.next_sub = self.sub.next()
-            }  
-            //println!("continue loop, next_min {:?}, next_sub {:?}", next_min, self.next_sub);
-                       
+
+        let min = match self.b.first() {
+            Some(v) if v < next => {
+                self.b = &self.b[exponential_search_idx(self.b, next)..];
+                &self.b[0]}, 
+            Some(v) => return Some(v),
+            None => return Some(next)
+        };
+
+        while next == min {
+            next = match self.a.next() {
+                Some(v) => v,
+                None => return None
+            };
         }
+
+        Some(next)
     }
 } 
 
@@ -262,10 +261,8 @@ impl<'a> IdRange<'a> for IdRangeList {
         assert!(self.sorted);
         assert!(other.sorted);
         Self::DifferenceIter {
-            min: self.indexes.iter(),
-            sub: other.indexes.iter(),
-            next_sub: other.indexes.iter().next()
-
+            a: self.indexes.iter(),
+            b: &other.indexes
         }
     }
 }
@@ -604,14 +601,14 @@ mod benchs {
 
     #[bench]
     fn bench_rangelist_creation_shuffle(b: &mut Bencher) {
-        let (v1, v2) = prepare_vectors(1000, 1000);
+        let (v1, _) = prepare_vectors(1000, 1000);
         b.iter(|| { let mut rl1 = IdRangeList::new(v1.clone());
                     rl1.sort();});
     }
 
     #[bench]
     fn bench_rangelist_creation_sorted(b: &mut Bencher) {
-        let (mut v1, mut v2) = prepare_vectors(1000, 1000);
+        let (mut v1, _) = prepare_vectors(1000, 1000);
         v1.sort();
         b.iter(|| { let mut rl1 = IdRangeList::new(v1.clone());
                     rl1.sort();});
@@ -619,28 +616,28 @@ mod benchs {
 
     #[bench]
     fn bench_rangelist_creation_ranges(b: &mut Bencher) {
-        let mut v1 = prepare_vector_ranges(100, 10);
+        let v1 = prepare_vector_ranges(100, 10);
         b.iter(|| { let mut rl1 = IdRangeList::new(v1.clone());
                     rl1.sort();});
     }
 
     #[bench]
     fn bench_rangeset_creation(b: &mut Bencher) {
-        let (v1, v2) = prepare_vectors(1000, 1000);
-        b.iter(|| { let rs1 = IdRangeSet::new(v1.clone());});
+        let (v1, _) = prepare_vectors(1000, 1000);
+        b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
     #[bench]
     fn bench_rangeset_creation_sorted(b: &mut Bencher) {
-        let (mut v1, mut v2) = prepare_vectors(1000, 1000);
+        let (mut v1, _) = prepare_vectors(1000, 1000);
         v1.sort();  
-        b.iter(|| { let rs1 = IdRangeSet::new(v1.clone());});
+        b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
     #[bench]
     fn bench_rangeset_creation_ranges(b: &mut Bencher) {
         let v1 = prepare_vector_ranges(100, 10);
-        b.iter(|| { let rs1 = IdRangeSet::new(v1.clone());});
+        b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
 }
