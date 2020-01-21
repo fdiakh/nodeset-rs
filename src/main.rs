@@ -29,7 +29,7 @@ pub struct IdRangeSet {
 
 struct VecDifference<'a, T> {
     a: std::slice::Iter<'a, T>,
-    b: &'a[T]
+    b: std::iter::Peekable<std::slice::Iter<'a, T>>
 }
 
 struct VecIntersection<'a, T> {
@@ -77,14 +77,19 @@ impl IdRangeList {
             None => return None
         };
 
-        let min = match self.b.first() {
-            Some(v) if v < next => {
-                self.b = &self.b[exponential_search_idx(self.b, next)..];
-                &self.b[0]}, 
-            Some(v) => return Some(v),
-            None => return Some(next)
-        };
+        let min: &T;
+        loop {
+            min = match self.b.peek() {
+                None    => return Some(next),
+                Some(v) if v >= &next => v,
+                _ => {self.b.next(); continue}
 
+            };
+
+            break
+        }
+
+        
         while next == min {
             next = match self.a.next() {
                 Some(v) => v,
@@ -262,7 +267,7 @@ impl<'a> IdRange<'a> for IdRangeList {
         assert!(other.sorted);
         Self::DifferenceIter {
             a: self.indexes.iter(),
-            b: &other.indexes
+            b: other.indexes.iter().peekable()
         }
     }
 }
