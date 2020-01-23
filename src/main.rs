@@ -77,27 +77,23 @@ impl IdRangeList {
             None => return None
         };
 
-        let min: &T;
+        let mut min: &T;
         loop {
             min = match self.b.peek() {
                 None    => return Some(next),
-                Some(v) if v >= &next => v,
+                Some(v) if v == &next => v,
+                Some(v) if v > &next => return Some(next),
                 _ => {self.b.next(); continue}
 
             };
-
-            break
-        }
-
-        
-        while next == min {
-            next = match self.a.next() {
-                Some(v) => v,
-                None => return None
-            };
-        }
-
-        Some(next)
+ 
+            while next == min {
+                next = match self.a.next() {
+                    Some(v) => v,
+                    None => return None
+                };
+            }
+       }
     }
 } 
 
@@ -530,7 +526,7 @@ mod benchs {
 
     fn prepare_vectors(count1: u32, count2: u32) -> (Vec<u32>, Vec<u32>) {
         let mut v1: Vec<u32> = (0..count1).collect();
-        let mut v2: Vec<u32> = (count1/2..count2+count1/2).collect();
+        let mut v2: Vec<u32> = (1..count2+1).collect();
         let mut rng = thread_rng();
 
         v1.shuffle(&mut rng);
@@ -555,65 +551,67 @@ mod benchs {
         
     }
 
+    const DEFAULT_COUNT: u32 = 1000;
+
     #[bench]
     fn bench_rangelist_union_homo(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangelists(1000, 1000);
+        let (rl1, rl2) = prepare_rangelists(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.union(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangeset_union_homo(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangesets(1000, 1000);
+        let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.union(&rl2).sum::<u32>());});        
     }
 
     #[bench]
     fn bench_rangelist_difference_homo(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangelists(1000, 1000);
+        let (rl1, rl2) = prepare_rangelists(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.difference(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangeset_difference_homo(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangesets(1000, 1000);
+        let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.difference(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangelist_difference_hetero(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangelists(10000, 10);
+        let (rl1, rl2) = prepare_rangelists(DEFAULT_COUNT, 10);
         b.iter(|| {black_box(rl1.difference(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangeset_difference_hetero(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangesets(10000, 10);
+        let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, 10);
         b.iter(|| {black_box(rl1.difference(&rl2).sum::<u32>());});
         
     }
 
     #[bench]
     fn bench_rangelist_intersection(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangelists(1000, 1000);
+        let (rl1, rl2) = prepare_rangelists(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.intersection(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangeset_intersection(b: &mut Bencher) {
-        let (rl1, rl2) = prepare_rangesets(1000, 1000);
+        let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.intersection(&rl2).sum::<u32>());});
     }
 
     #[bench]
     fn bench_rangelist_creation_shuffle(b: &mut Bencher) {
-        let (v1, _) = prepare_vectors(1000, 1000);
+        let (v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| { let mut rl1 = IdRangeList::new(v1.clone());
                     rl1.sort();});
     }
 
     #[bench]
     fn bench_rangelist_creation_sorted(b: &mut Bencher) {
-        let (mut v1, _) = prepare_vectors(1000, 1000);
+        let (mut v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         v1.sort();
         b.iter(|| { let mut rl1 = IdRangeList::new(v1.clone());
                     rl1.sort();});
@@ -628,13 +626,13 @@ mod benchs {
 
     #[bench]
     fn bench_rangeset_creation(b: &mut Bencher) {
-        let (v1, _) = prepare_vectors(1000, 1000);
+        let (v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
     #[bench]
     fn bench_rangeset_creation_sorted(b: &mut Bencher) {
-        let (mut v1, _) = prepare_vectors(1000, 1000);
+        let (mut v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         v1.sort();  
         b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
