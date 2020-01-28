@@ -9,7 +9,6 @@ use std::collections::hash_set::{
     Intersection as HSIntersection,
     SymmetricDifference as HSSymmetricDifference};
 use std::io;
-use std::cmp;
 use rand::prelude::*;
 use std::time::Instant;
 
@@ -41,6 +40,7 @@ struct VecUnion<'a, T> {
     a: &'a[T],
     b: &'a[T]
 }
+
 
 impl IdRangeSet {
     fn new(indexes: Vec<u32>) -> IdRangeSet {
@@ -104,61 +104,52 @@ impl<'a, T> Iterator for VecIntersection<'a, T>
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.a.first() != self.b.first() && !self.a.is_empty() && !self.b.is_empty() { 
-            //println!("Looping {:?} {:?}", self.a.first(), self.b.first());
-            let max = cmp::max(self.a.first().unwrap(), self.b.first().unwrap());
-            self.a = &self.a[exponential_search_idx(self.a, &max)..];
-            self.b = &self.b[exponential_search_idx(self.b, &max)..];
+        while !self.a.is_empty() && !self.b.is_empty() {
+            let first_a = self.a.first();
+            let first_b = self.b.first();
 
-            //println!("new index {:?} {:?}", exponential_search_idx(self.a, &max), 
-            //                                exponential_search_idx(self.b, &max));
+            if first_a == first_b {
+                self.a = &self.a[1..];
+                self.b = &self.b[1..];
+                return first_a;
+            } else {
+                if first_a < first_b{
+                    self.a = &self.a[exponential_search_idx(self.a, &first_b.unwrap())..];
+                } else {
+                    self.b = &self.b[exponential_search_idx(self.b, &first_a.unwrap())..];
+                }                
+            }            
         }
         
-        if self.a.is_empty() || self.b.is_empty() {
-            return None
-        }
-
-        let r = self.a.first();
-        self.a = &self.a[1..];
-        self.b = &self.b[1..];
-        r
+        return None
     }
 }
-
-
+ 
 impl<'a, T> Iterator for VecUnion<'a, T>
     where T: Ord + std::fmt::Debug
 {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.a.is_empty() {
-            if self.b.is_empty() {
-                return None
-            } else {
-                let res = self.b.first();
-                self.b = &self.b[1..];
-                return res;
-            }
-        } else {
-            if self.b.is_empty() {
-                let res = self.a.first();
+        let first_a = self.a.first();
+        let first_b = self.b.first();
+
+        if first_a != None { 
+            if first_a <= first_b || first_b == None { 
                 self.a = &self.a[1..];
-                return res;
-            }
+                return first_a;
+            } 
         }
-   
-        if self.a.first() <= self.b.first() {
-            let res = self.a.first();
-            self.a = &self.a[1..];
-            return res;
-        } else {
-            let res = self.b.first();
+
+        if first_b != None {
             self.b = &self.b[1..];
-            return res;
+            return first_b;
         }
+
+        return None;
     }
 }
+
 
 
 
@@ -202,7 +193,7 @@ fn exponential_search<T>(v: &[T], x: &T) -> Result<usize, usize>
     where T: Ord
 {   
     let mut i: usize = 1;
-    while i < v.len() {
+    while i <= v.len() {
         if v[i-1] == *x {
             return Ok(i-1);
         }
@@ -212,7 +203,7 @@ fn exponential_search<T>(v: &[T], x: &T) -> Result<usize, usize>
         i *= 2;
     }
 
-    match v[i/2..i-1].binary_search(x) {
+    match v[i/2..std::cmp::min(i-1, v.len())].binary_search(x) {
         Ok(result) => Ok(result + i/2),
         Err(result) => Err(result + i/2)
     }
@@ -487,12 +478,10 @@ fn main() {
 
     println!("Timing in a Vec for {} elems", count);
     let start = Instant::now();
-    //println!("Difference count {:?}", rl.difference(&rl).count());
-    //println!("Difference count {:?}", rl.difference(&rl2).count());
+
+
     let mut count = 0;
     for _ in 1..10000000 {
-    //println!("Intersection count {:?}", rl.intersection(&rl).count());
-    //println!("Intersection count {:?}", rl.intersection(&rl2).count());
         count  += rl.intersection(&rl2).count();
     }
     println!("Duration is {:?}", start.elapsed()/10000000);
@@ -652,7 +641,51 @@ mod tests {
         assert_eq!(exponential_search(&vec![], &0), Err(0));
         assert_eq!(exponential_search(&vec![1, 2, 4, 7], &4), Ok(2));
         assert_eq!(exponential_search(&vec![1, 2, 4, 7], &0), Err(0));
-        assert_eq!(exponential_search(&vec![1, 2, 4, 7], &8), Err(3));
+        assert_eq!(exponential_search(&vec![1, 2, 4, 7], &8), Err(4));
+    }
+
+   fn validate_rangelist_union_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>)
+   {
+        let rl1 = IdRangeList {
+            indexes: a,
+            sorted: true
+        };
+
+        let rl2 = IdRangeList {
+            indexes: b,
+            sorted: true
+        };
+        assert_eq!(rl1.union(&rl2).cloned().collect::<Vec<u32>>(), c);
+   }
+
+   fn validate_rangelist_intersection_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>)
+   {
+        let rl1 = IdRangeList {
+            indexes: a,
+            sorted: true
+        };
+
+        let rl2 = IdRangeList {
+            indexes: b,
+            sorted: true
+        };
+        assert_eq!(rl1.intersection(&rl2).cloned().collect::<Vec<u32>>(), c);
+   }
+    #[test]
+    fn rangelist_union() {
+        validate_rangelist_union_result(vec![0,4,9], vec![1,2,5,7], vec![0,1,2,4,5,7,9]);
+        validate_rangelist_union_result(vec![], vec![1,2,5,7], vec![1,2,5,7]);
+        validate_rangelist_union_result(vec![0,4,9], vec![], vec![0,4,9]);
+        validate_rangelist_union_result(vec![0,4,9], vec![10,11,12], vec![0,4,9,10,11,12]);
+    }
+
+    #[test]
+    fn rangelist_intersection() {
+        validate_rangelist_intersection_result(vec![0,4,9], vec![1,2,5,7], vec![]);
+/*         validate_rangelist_intersection_result(vec![], vec![1,2,5,7], vec![]); */
+        /* validate_rangelist_intersection_result(vec![0,4,9], vec![], vec![]);
+        validate_rangelist_intersection_result(vec![0,4,9,7,12,34,35], vec![4,11,12,37], vec![4,12]);
+        validate_rangelist_intersection_result(vec![4,11,12,37], vec![0,4,9,7,12,34,35], vec![4,12]); */
     }
 
     #[test]
