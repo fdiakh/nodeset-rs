@@ -66,12 +66,12 @@ impl IdRangeList {
     }
 }
 
- impl<'a, T> Iterator for VecDifference<'a, T> 
+ impl<'a, T> Iterator for VecDifference<'a, T>
     where T: Ord + std::fmt::Debug
 {
     type Item = &'a T;
 
-    fn next(&mut self) -> Option<Self::Item> {        
+    fn next(&mut self) -> Option<Self::Item> {
         let mut next = match self.a.next() {
             Some(v) => v,
             None => return None
@@ -86,7 +86,7 @@ impl IdRangeList {
                 _ => {self.b.next(); continue}
 
             };
- 
+
             while next == min {
                 next = match self.a.next() {
                     Some(v) => v,
@@ -95,7 +95,7 @@ impl IdRangeList {
             }
        }
     }
-} 
+}
 
 
 impl<'a, T> Iterator for VecIntersection<'a, T>
@@ -117,14 +117,14 @@ impl<'a, T> Iterator for VecIntersection<'a, T>
                     self.a = &self.a[exponential_search_idx(self.a, &first_b.unwrap())..];
                 } else {
                     self.b = &self.b[exponential_search_idx(self.b, &first_a.unwrap())..];
-                }                
-            }            
+                }
+            }
         }
-        
+
         return None
     }
 }
- 
+
 impl<'a, T> Iterator for VecUnion<'a, T>
     where T: Ord + std::fmt::Debug
 {
@@ -134,11 +134,11 @@ impl<'a, T> Iterator for VecUnion<'a, T>
         let first_a = self.a.first();
         let first_b = self.b.first();
 
-        if first_a != None { 
-            if first_a <= first_b || first_b == None { 
+        if first_a != None {
+            if first_a <= first_b || first_b == None {
                 self.a = &self.a[1..];
                 return first_a;
-            } 
+            }
         }
 
         if first_b != None {
@@ -171,7 +171,7 @@ impl<'a> IdRange<'a> for IdRangeSet {
     type SymmetricDifferenceIter = HSSymmetricDifference<'a, u32, FnvBuildHasher>;
     type IntersectionIter = HSIntersection<'a, u32, FnvBuildHasher>;
     type UnionIter = HSUnion<'a, u32, FnvBuildHasher>;
- 
+
     fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
         return self.indexes.difference(&other.indexes);
     }
@@ -179,7 +179,7 @@ impl<'a> IdRange<'a> for IdRangeSet {
         return self.indexes.symmetric_difference(&other.indexes);
     }
     fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter {
-        return self.indexes.intersection(&other.indexes);        
+        return self.indexes.intersection(&other.indexes);
     }
     fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter {
         return self.indexes.union(&other.indexes);
@@ -191,7 +191,7 @@ impl<'a> IdRange<'a> for IdRangeSet {
 
 fn exponential_search<T>(v: &[T], x: &T) -> Result<usize, usize>
     where T: Ord
-{   
+{
     let mut i: usize = 1;
     while i <= v.len() {
         if v[i-1] == *x {
@@ -211,7 +211,7 @@ fn exponential_search<T>(v: &[T], x: &T) -> Result<usize, usize>
 
 fn exponential_search_idx<T>(v: &[T], x: &T) -> usize
     where T: Ord
-{   
+{
     match exponential_search(v, x) {
         Ok(r) => r,
         Err(r) => r
@@ -287,7 +287,7 @@ impl NodeList {
                 _ => panic!()
             }
         }
-        
+
     }
 
 
@@ -408,7 +408,7 @@ impl<T: Coord + Ord> NR for NodeRange<T> {
         self.coords.sort();
 
         for c in &self.coords {
-            if first { 
+            if first {
                 cur_range = (c, c);
                 first = false;
             } else if cur_range.1 == c {
@@ -434,7 +434,7 @@ impl<T: Coord + Ord> NR for NodeRange<T> {
 
 impl<T: Coord> NodeRange<T> {
     fn new(c: T, nodeid: u16) -> NodeRange<T> {
-        NodeRange {     
+        NodeRange {
             nodeid: nodeid,
             coords: vec![c]
         }
@@ -486,7 +486,7 @@ fn main() {
     }
     println!("Duration is {:?}", start.elapsed()/10000000);
 
-    println!("Timing in a Set for {} elems", count);  
+    println!("Timing in a Set for {} elems", count);
     let start = Instant::now();
     let bs = IdRangeSet::new(v);
     let bs2 = IdRangeSet::new(v2);
@@ -521,23 +521,23 @@ mod benchs {
         v1.shuffle(&mut rng);
         v2.shuffle(&mut rng);
         (v1, v2)
-    } 
+    }
 
     fn prepare_rangelists(count1: u32, count2: u32) -> (IdRangeList, IdRangeList) {
         let (v1, v2) = prepare_vectors(count1, count2);
         let mut rl1 = IdRangeList::new(v1.clone());
         let mut rl2 = IdRangeList::new(v2.clone());
-        
+
         rl1.sort();
         rl2.sort();
 
-        (rl1, rl2)        
+        (rl1, rl2)
     }
-    
+
     fn prepare_rangesets(count1: u32, count2: u32) -> (IdRangeSet, IdRangeSet) {
         let (v1, v2) = prepare_vectors(count1, count2);
         (IdRangeSet::new(v1.clone()), IdRangeSet::new(v2.clone()))
-        
+
     }
 
     const DEFAULT_COUNT: u32 = 1000;
@@ -551,7 +551,7 @@ mod benchs {
     #[bench]
     fn bench_rangeset_union_homo(b: &mut Bencher) {
         let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
-        b.iter(|| {black_box(rl1.union(&rl2).sum::<u32>());});        
+        b.iter(|| {black_box(rl1.union(&rl2).sum::<u32>());});
     }
 
     #[bench]
@@ -576,7 +576,7 @@ mod benchs {
     fn bench_rangeset_difference_hetero(b: &mut Bencher) {
         let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, 10);
         b.iter(|| {black_box(rl1.difference(&rl2).sum::<u32>());});
-        
+
     }
 
     #[bench]
@@ -622,7 +622,7 @@ mod benchs {
     #[bench]
     fn bench_rangeset_creation_sorted(b: &mut Bencher) {
         let (mut v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
-        v1.sort();  
+        v1.sort();
         b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
@@ -706,7 +706,7 @@ mod tests {
             sorted: true
         };
         assert_eq!(rl1.difference(&rl2).cloned().collect::<Vec<u32>>(), vec![1, 2, 3]);
-        assert_eq!(rl2.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]); 
+        assert_eq!(rl2.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
         rl2 = IdRangeList {
             indexes: vec![4,5,6],
             sorted: true
@@ -751,7 +751,7 @@ impl Coord for Coord1 {
 }
  */
 
-/* 
+/*
 enum AnyCoords {
     Coords1(Vec<Coord1>),
     Coords2(Vec<Coord2>),
@@ -765,7 +765,7 @@ enum AnyCoords {
       id = get_nodeid(cmpnts)
       if last.nodeid == id
         last.push(&[u32])
-      else      
+      else
         rngs.push(nr::new(&[u32]))
 
     iter(self, nodelist)
