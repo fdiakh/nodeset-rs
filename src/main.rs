@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
-use regex::Regex;
+//use regex::Regex;
 use std::collections::HashMap;
 use fnv::{FnvHashSet, FnvBuildHasher};
 use std::collections::hash_set::{
@@ -8,14 +8,9 @@ use std::collections::hash_set::{
     Union as HSUnion,
     Intersection as HSIntersection,
     SymmetricDifference as HSSymmetricDifference};
-use std::io;
+//use std::io;
 use rand::prelude::*;
-use std::time::Instant;
-
-pub struct NodeList {
-    nodenames: HashMap<NodeName, u16>,
-    noderanges: Vec<Box<dyn NR>>,
-}
+//use std::time::Instant;
 
 pub struct IdRangeList {
     indexes: Vec<u32>,
@@ -47,23 +42,9 @@ struct VecSymDifference<'a, T> {
 }
 
 impl IdRangeSet {
-    fn new(indexes: Vec<u32>) -> IdRangeSet {
-        let mut bt: FnvHashSet<u32>  = FnvHashSet::with_hasher(Default::default());
-        bt.extend(&indexes);
-        IdRangeSet {
-            indexes: bt
-        }
-    }
 }
 
 impl IdRangeList {
-    fn new(indexes: Vec<u32>) -> IdRangeList {
-        IdRangeList {
-            indexes: indexes,
-            sorted: false
-        }
-    }
-
     fn sort(self: &mut Self) {
         self.indexes.sort();
         self.sorted = true;
@@ -85,8 +66,8 @@ impl IdRangeList {
         loop {
             min = match self.b.peek() {
                 None    => return Some(next),
-                Some(v) if v == &next => v,
-                Some(v) if v > &next => return Some(next),
+                Some(v) if *v == next => v,
+                Some(v) if *v > next => return Some(next),
                 _ => {self.b.next(); continue}
 
             };
@@ -116,12 +97,10 @@ impl<'a, T> Iterator for VecIntersection<'a, T>
                 self.a = &self.a[1..];
                 self.b = &self.b[1..];
                 return first_a;
-            } else {
-                if first_a < first_b{
+            } else if first_a < first_b{
                     self.a = &self.a[exponential_search_idx(self.a, &first_b.unwrap())..];
-                } else {
+            } else {
                     self.b = &self.b[exponential_search_idx(self.b, &first_a.unwrap())..];
-                }
             }
         }
 
@@ -138,11 +117,9 @@ impl<'a, T> Iterator for VecUnion<'a, T>
         let first_a = self.a.first();
         let first_b = self.b.first();
 
-        if first_a != None {
-            if first_a <= first_b || first_b == None {
+        if first_a != None && (first_a <= first_b || first_b == None) {
                 self.a = &self.a[1..];
                 return first_a;
-            }
         }
 
         if first_b != None {
@@ -174,26 +151,22 @@ impl<'a, T> Iterator for VecSymDifference<'a, T>
             first_b = self.b.first();
         }
 
-        if first_a != None {
-            if first_a < first_b || first_b == None {
+        if first_a != None && (first_a < first_b || first_b == None) {
                 self.a = &self.a[1..];
                 return first_a;
-            }
         }
         self.b = &self.b[1..];
         return first_b;
     }
 }
 
-
-
-
 trait IdRange<'a> {
-    type DifferenceIter: Iterator;
-    type SymmetricDifferenceIter: Iterator;
-    type IntersectionIter: Iterator;
-    type UnionIter: Iterator;
+    type DifferenceIter: Iterator<Item = &'a u32>;
+    type SymmetricDifferenceIter: Iterator<Item = &'a u32>;
+    type IntersectionIter: Iterator<Item = &'a u32>;
+    type UnionIter: Iterator<Item = &'a u32>;
 
+    fn new(indexes: Vec<u32>) -> Self;
     fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter;
     fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter;
     fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter;
@@ -207,6 +180,13 @@ impl<'a> IdRange<'a> for IdRangeSet {
     type IntersectionIter = HSIntersection<'a, u32, FnvBuildHasher>;
     type UnionIter = HSUnion<'a, u32, FnvBuildHasher>;
 
+    fn new(indexes: Vec<u32>) -> IdRangeSet {
+        let mut bt: FnvHashSet<u32>  = FnvHashSet::with_hasher(Default::default());
+        bt.extend(&indexes);
+        IdRangeSet {
+            indexes: bt
+        }
+    }
     fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
         return self.indexes.difference(&other.indexes);
     }
@@ -259,6 +239,13 @@ impl<'a> IdRange<'a> for IdRangeList {
     type UnionIter = VecUnion<'a, u32>;
     type SymmetricDifferenceIter = VecSymDifference<'a, u32>;
 
+    fn new(indexes: Vec<u32>) -> IdRangeList {
+        IdRangeList {
+            indexes,
+            sorted: false
+        }
+    }
+
     fn contains(self: &Self, id: u32) -> bool {
         exponential_search(&self.indexes, &id).is_ok()
     }
@@ -294,6 +281,35 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 }
 
+struct IdRangeProduct<T>
+{
+    ranges: Vec<T>
+}
+
+impl<'a, T> IdRangeProduct<T>
+    where T: IdRange<'a>
+{
+    fn intersection(self: &'a Self, other: &'a Self) -> IdRangeProduct<T> {
+        let mut nvec = Vec::<T>::new();
+        for (sidr, oidr) in self.ranges.iter()
+                                    .zip(other.ranges.iter()) {
+            nvec.push(T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>()))
+        }
+
+        IdRangeProduct {
+            ranges: nvec
+        }
+    }
+}
+
+struct IdSet<T> {
+    products: Vec<T>
+}
+
+pub struct NodeSet<T> {
+    nodenames: HashMap<String, IdSet<T>>,
+}
+/*
 impl NodeList {
     pub fn new() -> NodeList {
         NodeList {
@@ -475,7 +491,7 @@ impl<T: Coord> NodeRange<T> {
         }
     }
 }
-
+ */
 fn main() {
 /*     let mut text = String::new();
     io::stdin()
@@ -486,7 +502,7 @@ fn main() {
     n.push(&text);
     println!("{}", n.fold()); */
 
-    let mut line = String::new();
+/*     let mut line = String::new();
     let mut v  : Vec<u32> = Vec::new();
     let mut v2  : Vec<u32> = Vec::new();
     let mut rng = thread_rng();
@@ -530,7 +546,7 @@ fn main() {
     println!("Intersection count {:?}", bs.intersection(&bs).count());
     println!("Intersection count {:?}", bs.intersection(&bs2).count());
     println!("Duration is {:?}", start.elapsed());
-
+ */
 
 
 }
@@ -702,7 +718,7 @@ mod tests {
             indexes: b,
             sorted: true
         };
-        assert_eq!(rl1.union(&rl2).cloned().collect::<Vec<u32>>(), c);
+        assert_eq!(rl1.union(&rl2).copied().collect::<Vec<u32>>(), c);
    }
 
    fn validate_rangelist_symdiff_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>)
