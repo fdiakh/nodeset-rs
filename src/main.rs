@@ -41,6 +41,10 @@ struct VecUnion<'a, T> {
     b: &'a[T]
 }
 
+struct VecSymDifference<'a, T> {
+    a: &'a[T],
+    b: &'a[T]
+}
 
 impl IdRangeSet {
     fn new(indexes: Vec<u32>) -> IdRangeSet {
@@ -150,6 +154,37 @@ impl<'a, T> Iterator for VecUnion<'a, T>
     }
 }
 
+impl<'a, T> Iterator for VecSymDifference<'a, T>
+    where T: Ord + std::fmt::Debug
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+
+        let mut first_a = self.a.first();
+        let mut first_b = self.b.first();
+
+        while first_a == first_b {
+            if first_a == None {
+                return None
+            }
+            self.a = &self.a[1..];
+            self.b = &self.b[1..];
+            first_a = self.a.first();
+            first_b = self.b.first();
+        }
+
+        if first_a != None {
+            if first_a < first_b || first_b == None {
+                self.a = &self.a[1..];
+                return first_a;
+            }
+        }
+        self.b = &self.b[1..];
+        return first_b;
+    }
+}
+
 
 
 
@@ -222,7 +257,7 @@ impl<'a> IdRange<'a> for IdRangeList {
     type DifferenceIter = VecDifference<'a, u32>;
     type IntersectionIter = VecIntersection<'a, u32>;
     type UnionIter = VecUnion<'a, u32>;
-    type SymmetricDifferenceIter = VecIntersection<'a, u32>;
+    type SymmetricDifferenceIter = VecSymDifference<'a, u32>;
 
     fn contains(self: &Self, id: u32) -> bool {
         exponential_search(&self.indexes, &id).is_ok()
@@ -540,7 +575,7 @@ mod benchs {
 
     }
 
-    const DEFAULT_COUNT: u32 = 1000;
+    const DEFAULT_COUNT: u32 = 100;
 
     #[bench]
     fn bench_rangelist_union_homo(b: &mut Bencher) {
@@ -552,6 +587,18 @@ mod benchs {
     fn bench_rangeset_union_homo(b: &mut Bencher) {
         let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {black_box(rl1.union(&rl2).sum::<u32>());});
+    }
+
+    #[bench]
+    fn bench_rangelist_symdiff_homo(b: &mut Bencher) {
+        let (rl1, rl2) = prepare_rangelists(DEFAULT_COUNT, DEFAULT_COUNT);
+        b.iter(|| {black_box(rl1.symmetric_difference(&rl2).sum::<u32>());});
+    }
+
+    #[bench]
+    fn bench_rangeset_symdiff_homo(b: &mut Bencher) {
+        let (rl1, rl2) = prepare_rangesets(DEFAULT_COUNT, DEFAULT_COUNT);
+        b.iter(|| {black_box(rl1.symmetric_difference(&rl2).sum::<u32>());});
     }
 
     #[bench]
@@ -658,6 +705,20 @@ mod tests {
         assert_eq!(rl1.union(&rl2).cloned().collect::<Vec<u32>>(), c);
    }
 
+   fn validate_rangelist_symdiff_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>)
+   {
+        let rl1 = IdRangeList {
+            indexes: a,
+            sorted: true
+        };
+
+        let rl2 = IdRangeList {
+            indexes: b,
+            sorted: true
+        };
+        assert_eq!(rl1.symmetric_difference(&rl2).cloned().collect::<Vec<u32>>(), c);
+   }
+
    fn validate_rangelist_intersection_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>)
    {
         let rl1 = IdRangeList {
@@ -677,6 +738,14 @@ mod tests {
         validate_rangelist_union_result(vec![], vec![1,2,5,7], vec![1,2,5,7]);
         validate_rangelist_union_result(vec![0,4,9], vec![], vec![0,4,9]);
         validate_rangelist_union_result(vec![0,4,9], vec![10,11,12], vec![0,4,9,10,11,12]);
+    }
+
+    #[test]
+    fn rangelist_symdiff() {
+        validate_rangelist_symdiff_result(vec![0,2,4,7,9], vec![1,2,5,7], vec![0,1,4,5,9]);
+        validate_rangelist_symdiff_result(vec![], vec![1,2,5,7], vec![1,2,5,7]);
+        validate_rangelist_symdiff_result(vec![0,4,9], vec![], vec![0,4,9]);
+        validate_rangelist_symdiff_result(vec![0,4,9], vec![10,11,12], vec![0,4,9,10,11,12]);
     }
 
     #[test]
