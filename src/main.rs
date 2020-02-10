@@ -1,6 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
-//use regex::Regex;
+use regex::Regex;
 use std::collections::HashMap;
 use fnv::{FnvHashSet, FnvBuildHasher};
 use std::collections::hash_set::{
@@ -10,13 +10,16 @@ use std::collections::hash_set::{
     SymmetricDifference as HSSymmetricDifference};
 //use std::io;
 use rand::prelude::*;
-//use std::time::Instant;
+use itertools::Itertools;
 
+//todo: implement partialEq
+#[derive(Debug, PartialEq, Clone)]
 pub struct IdRangeList {
     indexes: Vec<u32>,
     sorted: bool
 }
 
+#[derive(Debug, PartialEq, Clone)]
 pub struct IdRangeSet {
     indexes: FnvHashSet<u32>
 }
@@ -51,7 +54,7 @@ impl IdRangeList {
     }
 }
 
- impl<'a, T> Iterator for VecDifference<'a, T>
+impl<'a, T> Iterator for VecDifference<'a, T>
     where T: Ord + std::fmt::Debug
 {
     type Item = &'a T;
@@ -81,7 +84,6 @@ impl IdRangeList {
        }
     }
 }
-
 
 impl<'a, T> Iterator for VecIntersection<'a, T>
     where T: Ord + std::fmt::Debug
@@ -171,7 +173,8 @@ trait IdRange<'a> {
     fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter;
     fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter;
     fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter;
-    fn contains(self: &'a Self, id: u32) -> bool;
+    fn contains(self: &Self, id: u32) -> bool;
+    fn is_empty(self: &Self) -> bool;
 }
 
 impl<'a> IdRange<'a> for IdRangeSet {
@@ -201,6 +204,9 @@ impl<'a> IdRange<'a> for IdRangeSet {
     }
     fn contains(self: &Self, id: u32) -> bool {
         return self.indexes.contains(&id);
+    }
+    fn is_empty(self: &Self) -> bool {
+        return self.indexes.is_empty()
     }
 }
 
@@ -279,31 +285,230 @@ impl<'a> IdRange<'a> for IdRangeList {
             b: other.indexes.iter().peekable()
         }
     }
+
+    fn is_empty(self: &Self) -> bool {
+        return self.indexes.is_empty();
+    }
 }
 
+
+#[derive(Debug, Clone)]
 struct IdRangeProduct<T>
 {
     ranges: Vec<T>
 }
 
+
 impl<'a, T> IdRangeProduct<T>
     where T: IdRange<'a>
 {
-    fn intersection(self: &'a Self, other: &'a Self) -> IdRangeProduct<T> {
-        let mut nvec = Vec::<T>::new();
+    fn intersection(self: &'a Self, other: &'a Self) -> Option<IdRangeProduct<T>> {
+        let mut ranges = Vec::<T>::new();
+
         for (sidr, oidr) in self.ranges.iter()
                                     .zip(other.ranges.iter()) {
-            nvec.push(T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>()))
+            let rng = T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>());
+            if rng.is_empty() {
+                return None
+            }
+            ranges.push(rng);
         }
 
-        IdRangeProduct {
-            ranges: nvec
-        }
+        Some(IdRangeProduct{ranges})
+    }
+
+    fn iter(self: &Self) -> std::slice::Iter<T>{
+        self.ranges.iter()
     }
 }
 
+#[derive(Debug)]
 struct IdSet<T> {
-    products: Vec<T>
+    products: Vec<IdRangeProduct<T>>
+}
+
+impl<T> std::fmt::Display for IdSet<T>
+    where T: std::fmt::Display
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // Customize so only `x` and `y` are denoted.
+        write!(f, "{}", self.products.iter().join(","))
+    }
+}
+
+impl<T> std::fmt::Display for IdRangeProduct<T>
+    where T: std::fmt::Display
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // Customize so only `x` and `y` are denoted.
+        write!(f, "{}", self.ranges.iter().join(""))
+    }
+}
+
+impl std::fmt::Display for IdRangeList
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut rngs = self.indexes.iter()
+                        .zip(self.indexes.iter().chain(self.indexes.iter().last()).skip(1))
+                        .batching(|it| {
+                            if let Some((&first, &next)) = it.next() {
+                                if next != first + 1 {
+                                    return Some(first.to_string())
+                                }
+                                for (&cur, &next) in it {
+                                    if next != cur + 1 {
+                                        return Some(format!("{}-{}", first, cur))
+                                    }
+                                }
+                                // Should never be reached
+                                None
+                            } else {
+                                None
+                            }
+                    });
+        write!(f, "[{}]", rngs.join(","))
+    }
+}
+
+impl std::fmt::Display for IdRangeSet
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+         write!(f, "[{}]", self.indexes.iter().join(","))
+    }
+}
+
+impl <'a, T> IdSet<T>
+    where T: IdRange<'a> + PartialEq + Clone
+{
+// TODO: return Result instead of panics
+// TODO: Enforce dimname for first match for nodeset
+    fn push(self: &mut Self, nodelist: &str) {
+        //let re = Regex::new(r"\s*(?P<dimname>@?[a-zA-Z_][a-zA-Z_\.\-]*)(?:(?P<index>[0-9]+)|(?:\[(?P<sindex>[0-9]+)(?:-(?P<eindex>[0-9]+))?(?:/(?P<step>[0-9]+))?\]))?(?P<sep>[,])?").unwrap();
+        let dim_re = Regex::new(r"\s*(?P<dimname>@?[a-zA-Z_][a-zA-Z_\.\-]*)?(?:(?P<index>[0-9]+)|(?:\[(?P<range>[0-9,-/]+)\]))?(?P<sep>[,])?").unwrap();
+        let range_re = Regex::new(r"(?P<sindex>[0-9]+)(?:-(?P<eindex>[0-9]+))?(?:/(?P<step>[0-9]+))?(?P<sep>[,])?").unwrap();
+        let mut prev_index = 0;
+        //let mut dims = 0;
+        let mut ranges = Vec::<T>::new();
+        for caps in dim_re.captures_iter(&nodelist) {
+            let new_index = caps.get(0).unwrap().start();
+            if new_index != prev_index {
+                println!(
+                    "Failed to parse at char {}: {}",
+                    prev_index,
+                    &nodelist[prev_index..new_index]
+                )
+            }
+
+            if let Some(m) = caps.name("index") {
+                let index: u32 = m.as_str().parse().unwrap();
+                ranges.push(T::new(vec![index]));
+            } else if let Some(m) = caps.name("range") {
+                // println!("bracket matched");
+                let mut range = Vec::<u32>::new();
+                let mut no_sep = false;
+                for rng_caps in range_re.captures_iter(m.as_str()) {
+                    if no_sep {
+                        panic!("Failed to parse at char {}: {}", prev_index, &nodelist[prev_index..new_index]);
+                    }
+
+                    if let Some(m) = rng_caps.name("eindex") {
+                        // println!("range");
+                        let sindex: u32 = rng_caps["sindex"].parse().unwrap();
+                        let eindex: u32 = m.as_str().parse().unwrap();
+                        let mut step = 1;
+                        if let Some(s) = rng_caps.name("step") {
+                            // println!("step");
+                            step = s.as_str().parse().unwrap();
+                        }
+                        range.extend((sindex..eindex+1).step_by(step))
+                    } else if let Some(m) = rng_caps.name("sindex") {
+                        // println!("single");
+                        range.push(m.as_str().parse().unwrap())
+                    } else {
+                        panic!("Failed to parse at char {}: {}", prev_index, &nodelist[prev_index..new_index]);
+                    }
+
+                    if rng_caps.name("sep").is_none() {
+                        no_sep = true;
+                    }
+                } // TODO: separators, errors
+                ranges.push(T::new(range));
+            }
+
+            if caps.name("sep").is_some() {
+                /* if dims > 0 && dims != ranges.len() {
+                    // TODO: mismatched dims, may not be an issue
+                    panic!("Failed to parse at char {}: {}", prev_index, &nodelist[prev_index..new_index]);
+                } */
+                self.products.push(IdRangeProduct{ranges});
+                ranges = Vec::<T>::new();
+            }
+            prev_index = caps.get(0).unwrap().end();
+        }
+
+        if !ranges.is_empty() {
+            self.products.push(IdRangeProduct{ranges});
+        }
+    }
+    fn fold(self: &'a Self) {
+        let mut start = 1;
+        let mut split_products: Vec<IdRangeProduct<T>> = vec![];
+
+        if self.products.is_empty() {
+            return
+        } else {
+            split_products.push(self.products[0].clone());
+        }
+
+        while start < self.products.len(){
+            let p1 = &self.products[start];
+           /* let mut new_products: Vec<IdRangeProduct<T>> = vec![]; */
+            for p2 in &split_products {
+                /* let mut new_p = IdRangeProduct::<T>{ranges: vec![]}; */
+                for (axis, (r1, r2)) in p1.iter()
+                                        .zip(p2.iter())
+                                        .enumerate() {
+                    if r2.intersection(r1).next().is_none() {
+                        break;
+                    }
+/*                     if r1 == r2 {
+                        new_p.ranges.push((*r1).clone());
+                    } else {
+                        /* new_p.ranges.push(T::new(r1.intersection(r2).cloned().collect())); */
+                        if r1.difference(r2).next().is_some() {
+                            let diff = vec![T::new(r1.difference(r2).cloned().collect())];
+                            let new_iter = p1.ranges[0..axis].iter()
+                                                             .chain(&diff)
+                                                             .chain(&(p1.ranges[axis+1..]));
+                            new_products.push(IdRangeProduct{ranges: new_iter.cloned().collect()});
+                        }
+                        if r2.difference(r1).next().is_some() {
+                            let diff = vec![T::new(r2.difference(r1).cloned().collect())];
+                            let new_iter = p1.ranges[0..axis].iter()
+                                                             .chain(&diff)
+                                                             .chain(&(p1.ranges[axis+1..]));
+                            new_products.push(IdRangeProduct{ranges: new_iter.cloned().collect()});
+                        }
+                    } */
+
+                }
+            }
+        }
+    }
+    fn intersection(self: &'a Self, other: &'a Self) -> Self {
+        let mut products = Vec::<IdRangeProduct<T>>::new();
+        for (sidpr, oidpr) in self.products.iter()
+            .cartesian_product(other.products.iter()) {
+                if let Some(idpr) = sidpr.intersection(oidpr) {
+                    products.push(idpr)
+                }
+        }
+        IdSet{products}
+    }
+
+    fn new() -> Self {
+        IdSet{products: Vec::new()}
+    }
 }
 
 pub struct NodeSet<T> {
@@ -695,10 +900,60 @@ mod benchs {
         b.iter(|| { let _rs1 = IdRangeSet::new(v1.clone());});
     }
 
+    #[bench]
+    fn bench_idset_intersection(b: &mut Bencher) {
+        let mut id1: IdSet<IdRangeList> = IdSet::new();
+        let mut id2: IdSet<IdRangeList> = IdSet::new();
+
+        id1.push("node[0-1000000]");
+        id2.push("node[1-1000001]");
+
+        b.iter(|| { let _rs1 = id1.intersection(&id2);});
+    }
+
+    #[bench]
+    fn bench_idset_intersection_set(b: &mut Bencher) {
+        let mut id1: IdSet<IdRangeSet> = IdSet::new();
+        let mut id2: IdSet<IdRangeSet> = IdSet::new();
+
+        id1.push("node[0-1000000]");
+        id2.push("node[1-1000001]");
+
+        b.iter(|| { let _rs1 = id1.intersection(&id2);});
+    }
+
+    #[bench]
+    fn bench_idset_print(b: &mut Bencher) {
+        let mut id1: IdSet<IdRangeList> = IdSet::new();
+
+        id1.push("node[0-10000000]");
+
+        b.iter(|| {let _rs1 = id1.to_string();});
+    }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn test_idset_parse() {
+        let mut id1: IdSet<IdRangeList> = IdSet::new();
+        let mut id2: IdSet<IdRangeList> = IdSet::new();
+
+        id1.push("node[1-10/2,5][1-7]3,[1-10/2,5][1-7]2");
+        id2.push("node[2-5][7][2,3]");
+
+        /* ids.push("node0");
+        println!("{:?}", ids);
+        ids.push("node[1]");
+        println!("{:?}", ids);
+         */
+        println!("{}", id1);
+        println!("{}", id2);
+        println!("{}", id1.intersection(&id2));
+
+        assert!(false);
+    }
+
     #[test]
     fn test_exponential_search() {
         assert_eq!(exponential_search(&vec![], &0), Err(0));

@@ -11,6 +11,7 @@ regex = "1"
 fnv = "1.0.3"
 hashers = "1.0.1"
 rand = "^0"
+itertools = "^0"
 
 [features]
 unstable = []
