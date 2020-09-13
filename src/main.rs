@@ -11,7 +11,7 @@ use std::collections::hash_set::{
 use std::collections::HashMap;
 use std::io;
 
-//todo: implement partialEq
+//todo: implement partialEq wrt sorted
 #[derive(Debug, PartialEq, Clone)]
 pub struct IdRangeList {
     indexes: Vec<u32>,
@@ -47,7 +47,7 @@ impl IdRangeSet {}
 
 impl IdRangeList {
     fn sort(self: &mut Self) {
-        self.indexes.sort();
+        self.indexes.sort_unstable();
         self.sorted = true;
     }
 }
@@ -181,6 +181,7 @@ trait IdRange<'a> {
     fn contains(self: &Self, id: u32) -> bool;
     fn is_empty(self: &Self) -> bool;
     fn push(self: &mut Self, other: &Self);
+    fn len(self: &Self) -> usize;
 }
 
 impl<'a> IdRange<'a> for IdRangeSet {
@@ -190,8 +191,12 @@ impl<'a> IdRange<'a> for IdRangeSet {
     type UnionIter = HSUnion<'a, u32, FnvBuildHasher>;
     type SelfIter = std::collections::hash_set::Iter<'a, u32>;
 
+    fn len(self: &Self) -> usize {
+        self.indexes.len()
+    }
+
     fn push(self: &mut Self, other: &Self){
-        panic!("todo")
+        self.indexes.extend(&other.indexes);
     }
 
     fn new(indexes: Vec<u32>) -> IdRangeSet {
@@ -266,8 +271,17 @@ impl<'a> IdRange<'a> for IdRangeList {
         }
     }
 
+    fn len(self: &Self) -> usize {
+        self.indexes.len()
+    }
+
     fn push(self: &mut Self, other: &Self){
-        self.indexes.extend(other.iter())
+        let need_sort = other.indexes[0] < *self.indexes.last().unwrap_or(&0);
+
+        self.indexes.extend(other.iter());
+        if need_sort {
+            self.indexes.sort_unstable();
+        }
     }
 
     fn contains(self: &Self, id: u32) -> bool {
@@ -505,37 +519,43 @@ where
         });
     }
     fn full_split(self: &mut Self) {
-        if self.products.is_empty() {
-            return;
-        }
-
-        let mut products = vec![];
+       /*  println!("full split"); */
+        let mut split_products = vec![];
         for p in &self.products {
             // Each product is split into a list of products
-            let mut nvec: Vec<IdRangeProduct<T>> = vec![];
-            for r in &p.ranges {
-                if nvec.is_empty() {
-                    for v in r.iter().cloned() {
-                        nvec.push(IdRangeProduct{ranges: vec![T::new(vec![v])]});
+            let mut first_range = true;
+            let start = split_products.len();
+            for rng in &p.ranges {
+                if first_range {
+                    first_range = false;
+                    for n in rng.iter() {
+                        split_products.push(IdRangeProduct{ranges: vec![T::new(vec![*n])]});
                     }
                 } else {
-                    let mut nnvec: Vec<IdRangeProduct<T>> = vec![];
-                    for (c, n) in nvec.iter().cloned().cartesian_product(r.iter().cloned()) {
-                        let mut c2 = c.clone();
-                        c2.ranges.push(T::new(vec![n]));
-                        nnvec.push(c2);
+                    let count = split_products.len() - start;
+                    for _ in 1..rng.len(){
+                        for j in 0..count {
+                            split_products.push(split_products[start + j].clone())
+                        }
                     }
-                    nvec = nnvec;
+
+                    for (i, r) in rng.iter().enumerate() {
+                        for sp in split_products[start+i*count..start+(i+1)*count].iter_mut() {
+                            sp.ranges.push(T::new(vec![*r]));
+                        }
+                    }
                 }
             }
-            products.append(&mut nvec);
         }
-        self.products = products;
+        self.products = split_products;
+        /* println!("splitted"); */
         self.sort(0);
         self.products.dedup();
+        /* println!("sorted"); */
     }
 
     fn minimal_split(self: &mut Self) {
+        /* println!("minimal split"); */
         self.sort(0);
         /* println!("sorted"); */
         let mut idx1 = 0;
@@ -545,7 +565,7 @@ where
             while idx2 < cur_len {
                 let p1 = &self.products[idx1];
                 let p2 = &self.products[idx2];
-  /*               println!("compare p1 {} with p2 {}", p1, p2); */
+  /*            println!("compare p1 {} with p2 {}", p1, p2); */
                 let mut inter_p = IdRangeProduct::<T>{ranges: vec![]};
                 let mut new_products = vec![];
                 let mut keep = false;
@@ -636,26 +656,26 @@ where
     }
 
     fn merge(self: &mut Self){
-        println!("merge");
-        let mut delmap: FnvHashSet<usize> = FnvHashSet::with_hasher(Default::default());
+        /* println!("merge"); */
+        let mut dellst = vec![false; self.products.len()];
 
         loop {
-             println!("loop");
+            /* println!("loop"); */
             let mut update = false;
             let mut idx1 = 0;
             while idx1 < self.products.len() - 1 {
-                if delmap.contains(&idx1){
+                if dellst[idx1]{
                     idx1 += 1;
                     continue
                 }
                 let mut idx2 = idx1 + 1;
                 while idx2 < self.products.len() {
-                    if delmap.contains(&idx2){
+                    if dellst[idx2]{
                         idx2 += 1;
                         continue
                     }
 
-                    /* println!("try merge p1 {} with p2 {}", p1, p2); */
+
                     //let mut new_p = vec![];
                     let mut num_diffs = 0;
                     let mut range = 0;
@@ -663,6 +683,7 @@ where
 
                     let p2 = &self.products[idx2];
                     let p1 = &self.products[idx1];
+/*                      println!("try merge p1 {} with p2 {}", p1, p2); */
                     for (i, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
                         if r1 == r2 {
                             /* println!("same range"); */
@@ -684,10 +705,11 @@ where
                     if num_diffs < 2 {
                         //println!("merge product");
                         update = true;
-                        let c = self.products[idx2].ranges[range].clone();
-                        self.products[idx1].ranges[range].push(&c);
+                        let (pp1, pp2) = self.products.split_at_mut(idx2);
 
-                        delmap.insert(idx2);
+                        pp1[idx1].ranges[range].push(&pp2[0].ranges[range]);
+
+                        dellst[idx2] = true;
                         //self.products.swap_remove(idx2);
                     }/*  else {
                         //println!("next product"); */
@@ -704,13 +726,13 @@ where
         .iter()
         .cloned()
         .enumerate()
-        .filter(|(i, _)| {!delmap.contains(i)})
+        .filter(|(i, _)| {!dellst[*i]})
         .map(|(_, p)| {p})
         .collect();
     }
 
     fn fold(self: &mut Self) {
-        /* self.minimal_split(); */
+        /* self.minimal_split();*/
         self.full_split();
         self.merge();
     }
@@ -750,53 +772,8 @@ fn main() {
     r.push(&text);
     r.fold();
     println!("{}", r);
-
-    /*     let mut line = String::new();
-       let mut v  : Vec<u32> = Vec::new();
-       let mut v2  : Vec<u32> = Vec::new();
-       let mut rng = thread_rng();
-       io::stdin().read_line(&mut line).expect("Failed to read count");
-       let count: u32 = line.trim().parse().expect("Failed to parse count");
-
-
-       for x in 0..count {
-           v.push(x);
-       }
-       v.shuffle(&mut rng);
-
-       for x in 0..count {
-           v2.push(x+1);
-       }
-       v2.shuffle(&mut rng);
-
-       let r = v.clone();
-       let r2 = v2.clone();
-       let mut rl = IdRangeList::new(r);
-       let mut rl2 = IdRangeList::new(r2);
-       rl.sort();
-       rl2.sort();
-
-       println!("Timing in a Vec for {} elems", count);
-       let start = Instant::now();
-
-
-       let mut count = 0;
-       for _ in 1..10000000 {
-           count  += rl.intersection(&rl2).count();
-       }
-       println!("Duration is {:?}", start.elapsed()/10000000);
-
-       println!("Timing in a Set for {} elems", count);
-       let start = Instant::now();
-       let bs = IdRangeSet::new(v);
-       let bs2 = IdRangeSet::new(v2);
-       println!("Difference count {:?}", bs.difference(&bs).count());
-       println!("Difference count {:?}", bs.difference(&bs2).count());
-       println!("Intersection count {:?}", bs.intersection(&bs).count());
-       println!("Intersection count {:?}", bs.intersection(&bs2).count());
-       println!("Duration is {:?}", start.elapsed());
-    */
 }
+
 #[cfg(all(feature = "unstable", test))]
 mod benchs {
     extern crate test;
@@ -921,7 +898,7 @@ mod benchs {
 
     #[bench]
     fn bench_rangelist_creation_shuffle(b: &mut Bencher) {
-        let (v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
+        let (v1, _) = prepare_vectors(DEFAULT_COUNT*100, DEFAULT_COUNT*100);
         b.iter(|| {
             let mut rl1 = IdRangeList::new(v1.clone());
             rl1.sort();
@@ -1006,6 +983,34 @@ mod benchs {
 
         b.iter(|| {
             let _rs1 = id1.to_string();
+        });
+    }
+
+    #[bench]
+    fn bench_idset_split(b: &mut Bencher) {
+        b.iter(|| {
+            let mut id1: IdSet<IdRangeList> = IdSet::new();
+            id1.push("node[0-100000]");
+            id1.full_split();
+        });
+    }
+
+    #[bench]
+    fn bench_idset_split_set(b: &mut Bencher) {
+        b.iter(|| {
+            let mut id1: IdSet<IdRangeSet> = IdSet::new();
+            id1.push("node[0-100000]");
+            id1.full_split();
+        });
+    }
+
+    #[bench]
+    fn bench_idset_merge(b: &mut Bencher) {
+        b.iter(|| {
+            let mut id1: IdSet<IdRangeList> = IdSet::new();
+            id1.push("node[0-100000]");
+            id1.full_split();
+            id1.merge();
         });
     }
 }
@@ -1182,71 +1187,3 @@ mod tests {
         rl1.difference(&rl2);
     } */
 }
-
-/* type Coord1 = u32;
-type Coord2 = (u32, u32);
-type Coord3 = (u32, u32, u32);
-type Coord4 = (u32, u32, u32, u32);
-
-impl Coord for Coord1 {
-    fn initcoords(self: Self) -> AnyCoords {
-        let v = vec![self];
-        AnyCoords::Coords1(v)
-    }
-    fn addto(self: Self, coords: &mut AnyCoords){
-        match coords {
-            AnyCoords::Coords1(c) => c.push(self),
-            _ => panic!("Coord type mismatch")
-        }
-    }
-}
- */
-
-/*
-enum AnyCoords {
-    Coords1(Vec<Coord1>),
-    Coords2(Vec<Coord2>),
-    Coords3(Vec<Coord3>),
-    Coords4(Vec<Coord4>),
-}
- */
-
-/*
-    push_one(cmpnts, &u[32])
-      id = get_nodeid(cmpnts)
-      if last.nodeid == id
-        last.push(&[u32])
-      else
-        rngs.push(nr::new(&[u32]))
-
-    iter(self, nodelist)
-        self.rngiter = nodelist.rngs.iter()
-        self.nriter = slef.rngiter.next()
-
-        coord = nriter().next_or(self.rngiter.next())
-        return format cpmnts[nodeid][]
-
-      for i in rngs()
-         retur
-    nr.push(self, &[u32])
-    nr.append(self, other)
-    nr.intersect(self, other)
-    nr.exclude(self, other)
-    nr.iter()
-    nr.iterfold()
-    nr.nodeid()
-*/
-
-// Algo:
-
-// pour n[0-9]m[10-11]
-
-// stocker:
-// names: ['n','m']
-// vec: (0,10), (0,11), (1,10) ...
-
-// dans un map indexé par les names
-// puis: trier et dedupliquer vec ordre lexico
-// puis: parcourir vec et recréer un nouveau vec: tant que seule la derniere dimension change de +1 stocker debut fin
-// generer nouveau vec (0, (10,11)), (1,(10,11)) etc.
-// puis recommencer avec l'avant dernière dimension (trier à nouveau mais en changeant le lexicographique: dimension n-1 en dernier) etc.
