@@ -10,8 +10,8 @@ edition = "2018"
 regex = "1"
 fnv = "1.0.3"
 hashers = "1.0.1"
-rand = "^0"
-itertools = "^0"
-
+rand = "0"
+itertools = "0"
+clap = "2"
 [features]
 unstable = []
