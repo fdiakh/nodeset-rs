@@ -180,7 +180,8 @@ trait IdRange<'a> {
     fn is_empty(self: &Self) -> bool;
     fn push(self: &mut Self, other: &Self);
     fn len(self: &Self) -> usize;
-    fn sort(self: &mut Self);
+    fn sort(&mut self);
+    fn force_sorted(self) -> Self;
 }
 
 impl<'a> IdRange<'a> for IdRangeSet {
@@ -226,6 +227,9 @@ impl<'a> IdRange<'a> for IdRangeSet {
     }
     fn iter(self: &'a Self) -> Self::SelfIter {
         return self.indexes.iter();
+    }
+    fn force_sorted(self) -> Self{
+        self
     }
 }
 
@@ -284,20 +288,30 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn sort(self: &mut Self) {
-        self.indexes.sort_unstable();
-        self.indexes.dedup();
-    }
-
-    fn push(self: &mut Self, other: &Self){
-        let need_sort = other.indexes[0] < *self.indexes.last().unwrap_or(&0);
-
-        self.indexes.extend(other.iter());
-        if need_sort {
+        if !self.sorted {
+            println!("sort range");
             self.indexes.sort_unstable();
+            self.indexes.dedup();
+            self.sorted = true;
         }
     }
 
+    fn push(self: &mut Self, other: &Self){
+        println!("before: {}", self.sorted);
+        let sorted = self.sorted && other.sorted &&
+                     other.indexes[0] > *self.indexes.last().unwrap_or(&0);
+        self.indexes.extend(other.iter());
+        if self.sorted && !sorted {
+            println!("resort");
+            self.sorted = false;
+            self.sort();
+        }
+        println!("after: {}", self.sorted);
+    }
+
     fn contains(self: &Self, id: u32) -> bool {
+        assert!(self.sorted);
+
         exponential_search(&self.indexes, &id).is_ok()
     }
 
@@ -306,6 +320,9 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter {
+        assert!(self.sorted);
+        assert!(other.sorted);
+
         Self::IntersectionIter {
             a: &self.indexes,
             b: &other.indexes,
@@ -313,6 +330,9 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter {
+        assert!(self.sorted);
+        assert!(other.sorted);
+
         Self::UnionIter {
             a: &self.indexes,
             b: &other.indexes,
@@ -320,6 +340,9 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter {
+        assert!(self.sorted);
+        assert!(other.sorted);
+
         Self::SymmetricDifferenceIter {
             a: &self.indexes,
             b: &other.indexes,
@@ -327,17 +350,23 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
-        //TODO: fix this once we manage sorted
-        //assert!(self.sorted);
-        //assert!(other.sorted);
+        assert!(self.sorted);
+        assert!(other.sorted);
+
         Self::DifferenceIter {
             a: self.indexes.iter(),
             b: other.indexes.iter().peekable(),
         }
     }
 
-    fn is_empty(self: &Self) -> bool {
+    fn is_empty(&self) -> bool {
         return self.indexes.is_empty();
+    }
+
+    fn force_sorted(mut self) -> Self {
+        let s = &mut self;
+        s.sorted = true;
+        return self;
     }
 }
 
@@ -433,7 +462,8 @@ where
         let mut ranges = Vec::<T>::new();
 
         for (sidr, oidr) in self.ranges.iter().zip(other.ranges.iter()) {
-            let rng = T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>());
+            let rng = T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>())
+                         .force_sorted();
             if rng.is_empty() {
                 return None;
             }
@@ -521,12 +551,6 @@ where
         self.products.iter().map(|x| x.len()).sum()
     }
 
-    fn prepare_sort(self: &mut Self){
-        for p in &mut self.products {
-            p.prepare_sort()
-        }
-    }
-
     fn sort(self: &mut Self, skip: usize) {
         self.products[skip..].sort_unstable_by(|a, b| {
             for (ai, bi) in a.iter().zip(b.iter()) {
@@ -553,7 +577,10 @@ where
                 if first_range {
                     first_range = false;
                     for n in rng.iter() {
-                        split_products.push(IdRangeProduct{ranges: vec![T::new(vec![*n])]});
+                        split_products.push(
+                            IdRangeProduct{
+                                ranges: vec![T::new(vec![*n]).force_sorted()]
+                            });
                     }
                 } else {
                     let count = split_products.len() - start;
@@ -565,7 +592,7 @@ where
 
                     for (i, r) in rng.iter().enumerate() {
                         for sp in split_products[start+i*count..start+(i+1)*count].iter_mut() {
-                            sp.ranges.push(T::new(vec![*r]));
+                            sp.ranges.push(T::new(vec![*r]).force_sorted());
                         }
                     }
                 }
@@ -628,9 +655,9 @@ where
                         //println!("split range");
                         // todo: keep intersect iter
                         split = true;
-                        inter_p.ranges.push(T::new(r1.intersection(r2).cloned().collect()));
+                        inter_p.ranges.push(T::new(r1.intersection(r2).cloned().collect()).force_sorted());
                         if r1.difference(r2).next().is_some() {
-                            let diff = vec![T::new(r1.difference(r2).cloned().collect())];
+                            let diff = vec![T::new(r1.difference(r2).cloned().collect()).force_sorted()];
                             //println!("diff1 {:?}", diff);
                             let new_iter = inter_p.ranges[0..axis].iter()
                                                              .chain(&diff)
@@ -638,7 +665,7 @@ where
                             new_products.push(IdRangeProduct{ranges: new_iter.cloned().collect()});
                         }
                         if r2.difference(r1).next().is_some() {
-                            let diff = vec![T::new(r2.difference(r1).cloned().collect())];
+                            let diff = vec![T::new(r2.difference(r1).cloned().collect()).force_sorted()];
                             //println!("diff2 {:?}", diff);
                             let new_iter = inter_p.ranges[0..axis].iter()
                                                              .chain(&diff)
@@ -732,7 +759,7 @@ where
                         let (pp1, pp2) = self.products.split_at_mut(idx2);
 
                         pp1[idx1].ranges[range].push(&pp2[0].ranges[range]);
-
+                        pp1[idx1].ranges[range].sort();
                         dellst[idx2] = true;
                         //self.products.swap_remove(idx2);
                     }/*  else {
@@ -756,6 +783,10 @@ where
     }
 
     fn fold(self: &mut Self) {
+        for p in &mut self.products {
+            p.prepare_sort()
+        }
+
         if self.len() > self.products.len() * self.products.len() {
             /* println!("minimal split"); */
             self.minimal_split();
@@ -766,6 +797,7 @@ where
         }
         self.merge();
     }
+
     fn intersection(self: &Self, other: &Self) -> Self {
         let mut products = Vec::<IdRangeProduct<T>>::new();
         for (sidpr, oidpr) in self
@@ -822,9 +854,6 @@ impl<T> NodeSet<T>
             self.dimnames.values_mut().for_each(|s| s.fold());
         }
 
-        fn sort (self: &mut Self) {
-            self.dimnames.values_mut().for_each(|s| s.prepare_sort());
-        }
         // TODO: return Result instead of panics
         // TODO: Enforce dimname for first match for nodeset
         fn push(self: &mut Self, nodelist: &str) {
@@ -932,7 +961,6 @@ fn main() {
         let mut n = NodeSet::<IdRangeList>::new();
 
         n.push(&nodeset);
-        n.sort();
         n.fold();
         println!("{}", n);
     } else {
@@ -1259,7 +1287,6 @@ mod tests {
         id1.push("a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2");
         id2.push("a[0-10]b[0-10],a[0-20]b[0-10]");
         id3.push("x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]");
-        id1.sort();
         id1.fold();
         id2.fold();
         id3.fold();
