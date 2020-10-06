@@ -2,14 +2,12 @@
 
 use fnv::{FnvBuildHasher, FnvHashSet};
 use itertools::Itertools;
-/* use rand::prelude::*; */
 use regex::Regex;
 use std::collections::hash_set::{
     Difference as HSDifference, Intersection as HSIntersection,
     SymmetricDifference as HSSymmetricDifference, Union as HSUnion,
 };
 use std::collections::HashMap;
-use std::io;
 use itertools;
 use clap::{App, Arg, SubCommand};
 
@@ -289,7 +287,7 @@ impl<'a> IdRange<'a> for IdRangeList {
 
     fn sort(self: &mut Self) {
         if !self.sorted {
-            println!("sort range");
+            /* println!("sort range"); */
             self.indexes.sort_unstable();
             self.indexes.dedup();
             self.sorted = true;
@@ -297,16 +295,16 @@ impl<'a> IdRange<'a> for IdRangeList {
     }
 
     fn push(self: &mut Self, other: &Self){
-        println!("before: {}", self.sorted);
+        /* println!("before: {}", self.sorted); */
         let sorted = self.sorted && other.sorted &&
                      other.indexes[0] > *self.indexes.last().unwrap_or(&0);
         self.indexes.extend(other.iter());
         if self.sorted && !sorted {
-            println!("resort");
+            /* println!("resort"); */
             self.sorted = false;
             self.sort();
         }
-        println!("after: {}", self.sorted);
+        /* println!("after: {}", self.sorted); */
     }
 
     fn contains(self: &Self, id: u32) -> bool {
@@ -407,12 +405,14 @@ struct IdRangeProduct<T> {
     ranges: Vec<T>,
 }
 
+
 struct IdRangeProductIter<'a, T>
     where T: IdRange<'a>
 {
     ranges: &'a Vec<T>,
     iters: Vec<std::iter::Peekable<T::SelfIter>>
 }
+
 
 impl<'a, T> Iterator for IdRangeProductIter<'a, T>
     where T: IdRange<'a>
@@ -522,14 +522,20 @@ where
     }
 }
 
-struct IdSetIter<T> {
-    idset: IdSet<T>
+struct IdSetIter<'a, T> where T: IdRange<'a> + std::fmt::Display {
+    product_iter: std::slice::Iter<'a, IdRangeProduct<T>>,
+    range_iter: Option<IdRangeProductIter<'a, T>>
 }
 
-impl<T> Iterator for IdSetIter<T> {
-    type Item = u32;
-    fn next(self: &mut Self) -> Option<Self::Item> {
-        None
+impl<'a, T> Iterator for IdSetIter<'a, T> where T:IdRange<'a> + std::fmt::Display {
+    type Item = Vec<u32>;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(coords) = self.range_iter.as_mut()?.next(){
+                return Some(coords)
+            }
+            self.range_iter = Some(self.product_iter.next()?.iter_products());
+        }
     }
 }
 
@@ -540,7 +546,7 @@ where
     fn fmt_dims(&self, f: &mut std::fmt::Formatter, dims: &Vec<String>) -> std::fmt::Result {
         let mut first = true;
         for p in &self.products {
-            if !first{write!(f, ",");}
+            if !first{write!(f, ",")?;}
             p.fmt_dims(f, dims).expect("failed to format string");
             first = false;
         }
@@ -798,7 +804,7 @@ where
         self.merge();
     }
 
-    fn intersection(self: &Self, other: &Self) -> Self {
+    fn intersection(self: &Self, other: &Self) -> Option<Self> {
         let mut products = Vec::<IdRangeProduct<T>>::new();
         for (sidpr, oidpr) in self
             .products
@@ -809,7 +815,11 @@ where
                 products.push(idpr)
             }
         }
-        IdSet { products }
+        if products.is_empty() {
+            None
+        } else {
+            Some(IdSet { products })
+        }
     }
 
     fn new() -> Self {
@@ -817,23 +827,53 @@ where
             products: Vec::new(),
         }
     }
+
+    fn iter<'b>(&'b self) -> IdSetIter<'b, T> {
+
+        let mut product_iter = self.products.iter();
+        let range_iter = product_iter.next().map(|p| p.iter_products());
+        IdSetIter {
+            product_iter,
+            range_iter
+        }
+    }
 }
-
-
 
 struct NodeSet<T> {
     dimnames: HashMap<Vec<String>, IdSet<T>>,
 }
 
+struct NodeSetIter<'a, T>  where  T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug {
+    dim_iter: std::iter::Peekable<std::collections::hash_map::Iter<'a, Vec<String>, IdSet<T>>>,
+    set_iter: Option<IdSetIter<'a, T>>
+}
+
+impl<'b, T> Iterator for NodeSetIter<'b, T> where for<'a>  T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(coords) = self.set_iter.as_mut()?.next() {
+                /* println!("next coord"); */
+                return Some(self.dim_iter.peek()?.0.iter().zip(coords.iter()).map(|(a,b)| format!("{}{}", a, b)).join(""));
+            } else {
+                /* println!("next dim"); */
+                self.dim_iter.next();
+                self.set_iter = Some(self.dim_iter.peek()?.1.iter());
+            }
+        }
+    }
+}
+
 impl<T> std::fmt::Display for NodeSet<T>
-    where for <'a> T: IdRange<'a> + std::fmt::Display+ PartialEq + Clone + std::fmt::Display + std::fmt::Debug
+    where for <'a> T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug
     {
         fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             let mut first = true;
 
             for (dim, set) in &self.dimnames {
                 if !first {
-                    write!(f, ",");
+                    write!(f, ",")?;
                 }
                 set.fmt_dims(f, dim).expect("failed to format string");
                 first = false;
@@ -850,8 +890,34 @@ impl<T> NodeSet<T>
             }
         }
 
+        fn iter<'a>(&'a self) -> NodeSetIter<'a, T> {
+            /* println!("{:?}", self.dimnames); */
+            let mut dim_iter = self.dimnames.iter().peekable();
+            let set_iter = dim_iter.peek().map(|s| s.1.iter());
+            NodeSetIter {
+                dim_iter,
+                set_iter
+            }
+        }
+
         fn fold(self: &mut Self) {
             self.dimnames.values_mut().for_each(|s| s.fold());
+        }
+
+        fn intersection(&mut self, other: &mut Self) -> Self {
+            let mut dimnames = HashMap::new();
+         /*    println!("Start intersect"); */
+            for (dimname, set) in self.dimnames.iter() {
+             /*    println!("{:?}", dimname); */
+                if let Some(oset) = other.dimnames.get(dimname) {
+                 /*    println!("Same dims"); */
+                    if let Some(nset) = set.intersection(oset) {
+                       /*  println!("Intersect"); */
+                        dimnames.insert(dimname.clone(), nset);
+                    }
+                }
+            }
+            NodeSet {dimnames}
         }
 
         // TODO: return Result instead of panics
@@ -947,28 +1013,47 @@ fn main() {
     let matches = App::new("ns")
     .subcommand(SubCommand::with_name("fold")
                 .about("Fold nodeset")
+                .arg(Arg::with_name("intersect")
+                    .short("i")
+                    .multiple(true)
+                    .takes_value(true))
                 .arg(Arg::with_name("nodeset")
                     .required(true)
                     .index(1)
                     .multiple(true)
                     ))
+    .subcommand(SubCommand::with_name("expand")
+                .about("Expand nodeset")
+                .arg(Arg::with_name("nodeset")
+                        .required(true)
+                        .index(1)
+                        .multiple(true)
+                        ))
     .get_matches();
 
 
     if let Some(matches) = matches.subcommand_matches("fold") {
-
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
         let mut n = NodeSet::<IdRangeList>::new();
 
         n.push(&nodeset);
         n.fold();
+/*         println!("{}", n); */
+        if let Some(intersect) = matches.values_of("intersect").as_mut() {
+            let intersect = intersect.join(" ");
+            let mut i = NodeSet::<IdRangeList>::new();
+           /*  println!("int {}", intersect); */
+            i.push(&intersect);
+            i.fold();
+            n = n.intersection(&mut i);
+        }
         println!("{}", n);
-    } else {
-        println!("{}", matches.usage());
+    } else if let Some(matches) = matches.subcommand_matches("expand") {
+        let nodeset = matches.values_of("nodeset").unwrap().join(" ");
+        let mut n = NodeSet::<IdRangeList>::new();
+        n.push(&nodeset);
+        println!("{}", n.iter().join(" "));
     }
-
-
-
 }
 
 #[cfg(all(feature = "unstable", test))]
@@ -1234,6 +1319,22 @@ mod tests {
     }
 
     #[test]
+    fn test_nodeset_intersect() {
+        let mut id1: NodeSet<IdRangeList> = NodeSet::new();
+        let mut id2: NodeSet<IdRangeList> = NodeSet::new();
+
+        id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2");
+        id2.push("x[2-5]y[7]z[2,3]");
+
+        id1.fold();
+        id2.fold();
+        assert_eq!(
+            id1.intersection(&mut id2).to_string(),
+            "x[3,5]y[7]z[2-3]"
+        );
+    }
+
+    #[test]
     fn test_idrangeproduct_iter() {
         /* Empty rangeproduct */
         let mut idpr = IdRangeProduct::<IdRangeList> {
@@ -1294,6 +1395,24 @@ mod tests {
         assert_eq!(id1.to_string(), "a[1,3,5,7,9]b[1-7]c[2-3]");
         assert_eq!(id2.to_string(), "a[0-20]b[0-10]");
         assert_eq!(id3.to_string(), "x[0-7]y[0-10],x[8-18]y[0-18]");
+    }
+
+    #[test]
+    fn test_nodeset_iter() {
+
+        let mut id1: NodeSet<IdRangeList> = NodeSet::new();
+        id1.push("a[1-2]b[1-2]");
+
+        assert_eq!(
+                id1.iter().collect::<Vec<_>>(),
+                vec![
+                    "a1b1",
+                    "a1b2",
+                    "a2b1",
+                    "a2b2",
+                ]
+        );
+
     }
 
     #[test]
