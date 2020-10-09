@@ -10,12 +10,17 @@ use std::collections::hash_set::{
 use std::collections::HashMap;
 use itertools;
 use clap::{App, Arg, SubCommand};
-
-//todo: implement partialEq wrt sorted
-#[derive(Debug, PartialEq, Clone)]
+use std::fmt;
+#[derive(Debug, Clone)]
 pub struct IdRangeList {
     indexes: Vec<u32>,
     sorted: bool,
+}
+
+impl PartialEq for IdRangeList {
+    fn eq(&self, other: &Self) -> bool {
+        self.indexes == other.indexes
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -50,7 +55,7 @@ impl IdRangeList {
 
 impl<'a, T> Iterator for VecDifference<'a, T>
 where
-    T: Ord + std::fmt::Debug,
+    T: Ord + fmt::Debug,
 {
     type Item = &'a T;
 
@@ -84,7 +89,7 @@ where
 
 impl<'a, T> Iterator for VecIntersection<'a, T>
 where
-    T: Ord + std::fmt::Debug,
+    T: Ord + fmt::Debug,
 {
     type Item = &'a T;
 
@@ -110,7 +115,7 @@ where
 
 impl<'a, T> Iterator for VecUnion<'a, T>
 where
-    T: Ord + std::fmt::Debug,
+    T: Ord + fmt::Debug,
 {
     type Item = &'a T;
 
@@ -134,7 +139,7 @@ where
 
 impl<'a, T> Iterator for VecSymDifference<'a, T>
 where
-    T: Ord + std::fmt::Debug,
+    T: Ord + fmt::Debug,
 {
     type Item = &'a T;
 
@@ -231,8 +236,8 @@ impl<'a> IdRange<'a> for IdRangeSet {
     }
 }
 
-impl std::fmt::Display for IdRangeSet {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for IdRangeSet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[{}]", self.indexes.iter().join(","))
     }
 }
@@ -369,8 +374,8 @@ impl<'a> IdRange<'a> for IdRangeList {
 }
 
 
-impl std::fmt::Display for IdRangeList {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl fmt::Display for IdRangeList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut rngs = self
             .indexes
             .iter()
@@ -388,7 +393,7 @@ impl std::fmt::Display for IdRangeList {
                     for (&cur, &next) in it {
                         if next != cur + 1 {
                             return Some(format!("{}-{}", first, cur));
-                        }
+               }
                     }
                     // Should never be reached
                     None
@@ -456,7 +461,7 @@ impl<'a, T> Iterator for IdRangeProductIter<'a, T>
 
 impl<'a, T> IdRangeProduct<T>
 where
-    T: IdRange<'a> + std::fmt::Display,
+    T: IdRange<'a> + fmt::Display,
 {
     fn intersection(self: &'a Self, other: &'a Self) -> Option<IdRangeProduct<T>> {
         let mut ranges = Vec::<T>::new();
@@ -494,16 +499,20 @@ where
         self.ranges.iter().map(|r| r.len()).sum()
     }
 
-    fn fmt_dims(&self, f: &mut std::fmt::Formatter, dims: &Vec<String>) -> std::fmt::Result {
+    fn num_axis(self: &Self) -> usize {
+        self.ranges.len()
+    }
+
+    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &Vec<String>) -> fmt::Result {
         write!(f, "{}", dims.iter().map(|d| d.to_string()).interleave(self.ranges.iter().map(|s| s.to_string())).join(""))
     }
 }
 
-impl<T> std::fmt::Display for IdRangeProduct<T>
+impl<T> fmt::Display for IdRangeProduct<T>
 where
-    T: std::fmt::Display,
+    T: fmt::Display,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.ranges.iter().join(""))
     }
 }
@@ -513,21 +522,21 @@ struct IdSet<T> {
     products: Vec<IdRangeProduct<T>>,
 }
 
-impl<T> std::fmt::Display for IdSet<T>
+impl<T> fmt::Display for IdSet<T>
 where
-    T: std::fmt::Display,
+    T: fmt::Display,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.products.iter().join(","))
     }
 }
 
-struct IdSetIter<'a, T> where T: IdRange<'a> + std::fmt::Display {
+struct IdSetIter<'a, T> where T: IdRange<'a> + fmt::Display {
     product_iter: std::slice::Iter<'a, IdRangeProduct<T>>,
     range_iter: Option<IdRangeProductIter<'a, T>>
 }
 
-impl<'a, T> Iterator for IdSetIter<'a, T> where T:IdRange<'a> + std::fmt::Display {
+impl<'a, T> Iterator for IdSetIter<'a, T> where T:IdRange<'a> + fmt::Display {
     type Item = Vec<u32>;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -541,9 +550,9 @@ impl<'a, T> Iterator for IdSetIter<'a, T> where T:IdRange<'a> + std::fmt::Displa
 
 impl<T> IdSet<T>
 where
-    for<'a> T: IdRange<'a> + PartialEq + Clone + std::fmt::Display + std::fmt::Debug,
+    for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    fn fmt_dims(&self, f: &mut std::fmt::Formatter, dims: &Vec<String>) -> std::fmt::Result {
+    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &Vec<String>) -> fmt::Result {
         let mut first = true;
         for p in &self.products {
             if !first{write!(f, ",")?;}
@@ -629,8 +638,8 @@ where
                 let mut term = false;
                 let mut intersect = false;
                 let mut split = false;
-                // todo: define len on products
-                let num_axis = p1.ranges.len();
+
+                let num_axis = p1.num_axis();
                 for (axis, (r1, r2)) in p1.iter()
                                         .zip(p2.iter())
                                         .enumerate() {
@@ -659,7 +668,6 @@ where
                         inter_p.ranges.push(r1.clone());
                     }  else {
                         //println!("split range");
-                        // todo: keep intersect iter
                         split = true;
                         inter_p.ranges.push(T::new(r1.intersection(r2).cloned().collect()).force_sorted());
                         if r1.difference(r2).next().is_some() {
@@ -737,27 +745,22 @@ where
                     let mut num_diffs = 0;
                     let mut range = 0;
                     {
-
-                    let p2 = &self.products[idx2];
-                    let p1 = &self.products[idx1];
-/*                      println!("try merge p1 {} with p2 {}", p1, p2); */
-                    for (i, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
-                        if r1 == r2 {
-                            /* println!("same range"); */
-                        } else if num_diffs == 0 {
-                            /* println!("merge range"); */
-                            //let new_rng = T::new(r1.union(r2).cloned().collect());
-                            //new_p.push(new_rng);
-                            // todo: store which range
-                            // todo: append instead of union
-                            num_diffs += 1;
-                            range = i;
-                        } else {
-                            /* println!("abort"); */
-                            num_diffs += 1;
-                            break;
+                        let p2 = &self.products[idx2];
+                        let p1 = &self.products[idx1];
+    /*                  println!("try merge p1 {} with p2 {}", p1, p2); */
+                        for (i, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
+                            if r1 == r2 {
+                                /* println!("same range"); */
+                            } else if num_diffs == 0 {
+                                /* println!("merge range"); */
+                                num_diffs += 1;
+                                range = i;
+                            } else {
+                                /* println!("abort"); */
+                                num_diffs += 1;
+                                break;
+                            }
                         }
-                    }
                     }
                     if num_diffs < 2 {
                         //println!("merge product");
@@ -765,13 +768,9 @@ where
                         let (pp1, pp2) = self.products.split_at_mut(idx2);
 
                         pp1[idx1].ranges[range].push(&pp2[0].ranges[range]);
-                        pp1[idx1].ranges[range].sort();
                         dellst[idx2] = true;
-                        //self.products.swap_remove(idx2);
-                    }/*  else {
-                        //println!("next product"); */
-                        idx2 += 1
-                   /*  } */
+                    }
+                    idx2 += 1
                 }
                 idx1 += 1;
             }
@@ -839,43 +838,96 @@ where
     }
 }
 
-struct NodeSet<T> {
-    dimnames: HashMap<Vec<String>, IdSet<T>>,
+struct NodeSetParseError {
+    pos: usize,
+    excerpt: String
 }
 
-struct NodeSetIter<'a, T>  where  T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug {
-    dim_iter: std::iter::Peekable<std::collections::hash_map::Iter<'a, Vec<String>, IdSet<T>>>,
+impl NodeSetParseError{
+    fn new(start: usize, end: usize, ns: &str) -> NodeSetParseError {
+        NodeSetParseError {
+            pos: start,
+            excerpt: ns[start..end].into()
+        }
+    }
+}
+
+impl fmt::Debug for NodeSetParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Failed to parse at pos {}: '{}'", self.pos, self.excerpt)
+    }
+}
+
+impl fmt::Display for NodeSetParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Failed to parse at pos {}: '{}'", self.pos, self.excerpt)
+    }
+}
+
+struct NodeSet<T> {
+    dimnames: HashMap<NodeSetDimensions, Option<IdSet<T>>>,
+}
+
+struct NodeSetIter<'a, T>  where  T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug {
+    dim_iter: std::iter::Peekable<std::collections::hash_map::Iter<'a, NodeSetDimensions, Option<IdSet<T>>>>,
     set_iter: Option<IdSetIter<'a, T>>
 }
 
-impl<'b, T> Iterator for NodeSetIter<'b, T> where for<'a>  T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug {
+impl<'b, T> Iterator for NodeSetIter<'b, T> where for<'a>  T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug {
     type Item = String;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(coords) = self.set_iter.as_mut()?.next() {
                 /* println!("next coord"); */
-                return Some(self.dim_iter.peek()?.0.iter().zip(coords.iter()).map(|(a,b)| format!("{}{}", a, b)).join(""));
+                return Some(self.dim_iter.peek()?.0.dimnames.iter().zip(coords.iter()).map(|(a,b)| format!("{}{}", a, b)).join(""));
             } else {
                 /* println!("next dim"); */
                 self.dim_iter.next();
-                self.set_iter = Some(self.dim_iter.peek()?.1.iter());
+                self.set_iter = self.dim_iter.peek()?.1.as_ref().map(|s| s.iter());
             }
         }
     }
 }
 
-impl<T> std::fmt::Display for NodeSet<T>
-    where for <'a> T: IdRange<'a> + std::fmt::Display + PartialEq + Clone + std::fmt::Display + std::fmt::Debug
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+struct NodeSetDimensions {
+    dimnames: Vec<String>,
+    has_suffix: bool
+}
+
+impl NodeSetDimensions {
+/*     fn is_unique(&self) -> bool {
+        return self.dimnames.len() == 1 && self.has_suffix
+    } */
+    fn new() -> NodeSetDimensions {
+        NodeSetDimensions {
+            dimnames: Vec::<String>::new(),
+            has_suffix: false
+        }
+    }
+    /*todo: better manage has_suffix, check consistency (single suffix)*/
+    fn push(&mut self, d: &str, has_suffix: bool){
+        self.dimnames.push(d.into());
+        self.has_suffix = has_suffix;
+    }
+}
+
+impl<T> fmt::Display for NodeSet<T>
+    where for <'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug
     {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let mut first = true;
 
             for (dim, set) in &self.dimnames {
                 if !first {
                     write!(f, ",")?;
                 }
-                set.fmt_dims(f, dim).expect("failed to format string");
+                if let Some(set) = set {
+                    set.fmt_dims(f, &dim.dimnames).expect("failed to format string");
+                } else {
+                    write!(f, "{}", dim.dimnames[0])?;
+                }
                 first = false;
             }
             Ok(())
@@ -883,7 +935,7 @@ impl<T> std::fmt::Display for NodeSet<T>
     }
 
 impl<T> NodeSet<T>
-    where for <'a> T: IdRange<'a> + PartialEq + Clone + std::fmt::Display + std::fmt::Debug {
+    where for <'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug {
         fn new() -> Self {
             NodeSet {
                 dimnames: HashMap::new()
@@ -893,7 +945,7 @@ impl<T> NodeSet<T>
         fn iter<'a>(&'a self) -> NodeSetIter<'a, T> {
             /* println!("{:?}", self.dimnames); */
             let mut dim_iter = self.dimnames.iter().peekable();
-            let set_iter = dim_iter.peek().map(|s| s.1.iter());
+            let set_iter = dim_iter.peek().and_then(|s| s.1.as_ref().map(|ss| ss.iter()));
             NodeSetIter {
                 dim_iter,
                 set_iter
@@ -901,28 +953,41 @@ impl<T> NodeSet<T>
         }
 
         fn fold(self: &mut Self) {
-            self.dimnames.values_mut().for_each(|s| s.fold());
+            /* println!("fold {:?}", self.dimnames); */
+            self.dimnames.values_mut().for_each(
+                |s| {
+                    if let Some(s) = s {
+                        s.fold();
+                    }
+                })
         }
 
         fn intersection(&mut self, other: &mut Self) -> Self {
-            let mut dimnames = HashMap::new();
+            let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
          /*    println!("Start intersect"); */
             for (dimname, set) in self.dimnames.iter() {
              /*    println!("{:?}", dimname); */
                 if let Some(oset) = other.dimnames.get(dimname) {
                  /*    println!("Same dims"); */
-                    if let Some(nset) = set.intersection(oset) {
-                       /*  println!("Intersect"); */
-                        dimnames.insert(dimname.clone(), nset);
+                    match (set, oset) {
+                        (None, None) => {dimnames.insert(dimname.clone(), None);}
+                        (Some(set), Some(oset)) => {
+                            if let Some(nset) = set.intersection(oset) {
+                                /*  println!("Intersect"); */
+                                 dimnames.insert(dimname.clone(), Some(nset));
+                             }
+                        },
+                        _ => break
+
                     }
                 }
             }
-            NodeSet {dimnames}
+            NodeSet {dimnames: dimnames}
         }
 
         // TODO: return Result instead of panics
         // TODO: Enforce dimname for first match for nodeset
-        fn push(self: &mut Self, nodelist: &str) {
+        fn push(self: &mut Self, nodelist: &str) -> Result<(), NodeSetParseError>{
             //let re = Regex::new(r"\s*(?P<dimname>@?[a-zA-Z_][a-zA-Z_\.\-]*)(?:(?P<index>[0-9]+)|(?:\[(?P<sindex>[0-9]+)(?:-(?P<eindex>[0-9]+))?(?:/(?P<step>[0-9]+))?\]))?(?P<sep>[,])?").unwrap();
             let dim_re = Regex::new(r"\s*(?P<dimname>@?[a-zA-Z_\.\-]+)(?:(?P<index>[0-9]+)|(?:\[(?P<range>[0-9,-/]+)\]))?(?P<sep>[, ]+)?").unwrap();
             let range_re = Regex::new(
@@ -932,19 +997,16 @@ impl<T> NodeSet<T>
             let mut prev_index = 0;
             //let mut dims = 0;
             let mut ranges = Vec::<T>::new();
-            let mut dims = Vec::<String>::new();
+            let mut dims = NodeSetDimensions::new();
             for caps in dim_re.captures_iter(&nodelist) {
+                /* println!("cap"); */
                 let new_index = caps.get(0).unwrap().start();
 
                 if new_index != prev_index {
-                    println!(
-                        "Failed to parse at char {}: {}",
-                        prev_index,
-                        &nodelist[prev_index..new_index]
-                    )
+                    return Err(NodeSetParseError::new(prev_index, new_index, nodelist));
                 }
 
-                dims.push(caps.name("dimname").unwrap().as_str().into());
+                let mut has_suffix = false;
 
                 if let Some(m) = caps.name("index") {
                     let index: u32 = m.as_str().parse().unwrap();
@@ -955,11 +1017,7 @@ impl<T> NodeSet<T>
                     let mut no_sep = false;
                     for rng_caps in range_re.captures_iter(m.as_str()) {
                         if no_sep {
-                            panic!(
-                                "Failed to parse at char {}: {}",
-                                prev_index,
-                                &nodelist[prev_index..new_index]
-                            );
+                            return Err(NodeSetParseError::new(prev_index, new_index, nodelist));
                         }
 
                         if let Some(m) = rng_caps.name("eindex") {
@@ -969,18 +1027,14 @@ impl<T> NodeSet<T>
                             let mut step = 1;
                             if let Some(s) = rng_caps.name("step") {
                                 // println!("step");
-                                step = s.as_str().parse().unwrap();
+                                step = s.as_str().parse().map_err(|_| NodeSetParseError::new(prev_index, new_index, nodelist))?;
                             }
                             range.extend((sindex..eindex + 1).step_by(step))
                         } else if let Some(m) = rng_caps.name("sindex") {
                             // println!("single");
                             range.push(m.as_str().parse().unwrap())
                         } else {
-                            panic!(
-                                "Failed to parse at char {}: {}",
-                                prev_index,
-                                &nodelist[prev_index..new_index]
-                            );
+                            return Err(NodeSetParseError::new(prev_index, new_index, nodelist));
                         }
 
                         if rng_caps.name("sep").is_none() {
@@ -988,28 +1042,53 @@ impl<T> NodeSet<T>
                         }
                     } // TODO: separators, errors
                     ranges.push(T::new(range));
+                }else{
+                    /* println!("not indexed"); */
+                    has_suffix = true;
                 }
+
+                dims.push(caps.name("dimname").unwrap().as_str().into(), has_suffix);
 
                 if caps.name("sep").is_some() {
                     /* if dims > 0 && dims != ranges.len() {
                         // TODO: mismatched dims, may not be an issue
                         panic!("Failed to parse at char {}: {}", prev_index, &nodelist[prev_index..new_index]);
                     } */
-                    self.dimnames.entry(dims).or_insert_with(|| IdSet::new()).products.push(IdRangeProduct { ranges });
-                    dims = Vec::<String>::new();
+                    if ranges.is_empty() {
+                        /* println!("empty range"); */
+                        self.dimnames.entry(dims).or_insert_with(|| None);
+                    }else{
+                        /* println!("real range {:?}", ranges); */
+                        self.dimnames.entry(dims).or_insert_with(|| Some(IdSet::new())).as_mut().unwrap().products.push(IdRangeProduct { ranges });
+                    }
+                    dims = NodeSetDimensions::new();
                     ranges = Vec::<T>::new();
                 }
                 prev_index = caps.get(0).unwrap().end();
             }
-
-            if !ranges.is_empty() {
-                self.dimnames.entry(dims).or_insert_with(|| IdSet::new()).products.push(IdRangeProduct { ranges });
+            if prev_index != nodelist.len() {
+                return Err(NodeSetParseError::new(prev_index, nodelist.len(), nodelist));
             }
+            if !dims.dimnames.is_empty() {
+                if ranges.is_empty() {
+                    /* println!("empty range"); */
+                    self.dimnames.entry(dims).or_insert_with(|| None);
+                }else{
+                    /* println!("real range {:?}", ranges); */
+                    self.dimnames.entry(dims).or_insert_with(|| Some(IdSet::new())).as_mut().unwrap().products.push(IdRangeProduct { ranges });
+                }
+            }
+
+            Ok(())
         }
     }
 
-
 fn main() {
+    if let Err(e) = run() {
+        println!("Error: {}", e)
+    }
+}
+fn run() -> Result<(), NodeSetParseError> {
     let matches = App::new("ns")
     .subcommand(SubCommand::with_name("fold")
                 .about("Fold nodeset")
@@ -1036,14 +1115,14 @@ fn main() {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
         let mut n = NodeSet::<IdRangeList>::new();
 
-        n.push(&nodeset);
+        n.push(&nodeset)?;
         n.fold();
 /*         println!("{}", n); */
         if let Some(intersect) = matches.values_of("intersect").as_mut() {
             let intersect = intersect.join(" ");
             let mut i = NodeSet::<IdRangeList>::new();
            /*  println!("int {}", intersect); */
-            i.push(&intersect);
+            i.push(&intersect)?;
             i.fold();
             n = n.intersection(&mut i);
         }
@@ -1051,9 +1130,10 @@ fn main() {
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
         let mut n = NodeSet::<IdRangeList>::new();
-        n.push(&nodeset);
+        n.push(&nodeset)?;
         println!("{}", n.iter().join(" "));
     }
+    Ok(())
 }
 
 #[cfg(all(feature = "unstable", test))]
@@ -1304,8 +1384,8 @@ mod tests {
         let mut id1: NodeSet<IdRangeList> = NodeSet::new();
         let mut id2: NodeSet<IdRangeList> = NodeSet::new();
 
-        id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2");
-        id2.push("x[2-5]y[7]z[2,3]");
+        id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2").unwrap();
+        id2.push("x[2-5]y[7]z[2,3]").unwrap();
 
         assert_eq!(
             id1.to_string(),
@@ -1323,8 +1403,8 @@ mod tests {
         let mut id1: NodeSet<IdRangeList> = NodeSet::new();
         let mut id2: NodeSet<IdRangeList> = NodeSet::new();
 
-        id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2");
-        id2.push("x[2-5]y[7]z[2,3]");
+        id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2").unwrap();
+        id2.push("x[2-5]y[7]z[2,3]").unwrap();
 
         id1.fold();
         id2.fold();
@@ -1385,9 +1465,9 @@ mod tests {
         let mut id2: NodeSet<IdRangeList> = NodeSet ::new();
         let mut id3: NodeSet<IdRangeList> = NodeSet ::new();
 
-        id1.push("a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2");
-        id2.push("a[0-10]b[0-10],a[0-20]b[0-10]");
-        id3.push("x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]");
+        id1.push("a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2").unwrap();
+        id2.push("a[0-10]b[0-10],a[0-20]b[0-10]").unwrap();
+        id3.push("x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]").unwrap();
         id1.fold();
         id2.fold();
         id3.fold();
@@ -1401,7 +1481,7 @@ mod tests {
     fn test_nodeset_iter() {
 
         let mut id1: NodeSet<IdRangeList> = NodeSet::new();
-        id1.push("a[1-2]b[1-2]");
+        id1.push("a[1-2]b[1-2]").unwrap();
 
         assert_eq!(
                 id1.iter().collect::<Vec<_>>(),
