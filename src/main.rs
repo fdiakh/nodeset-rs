@@ -28,22 +28,22 @@ pub struct IdRangeSet {
     indexes: FnvHashSet<u32>,
 }
 
-struct VecDifference<'a, T> {
+pub struct VecDifference<'a, T> {
     a: std::slice::Iter<'a, T>,
     b: std::iter::Peekable<std::slice::Iter<'a, T>>,
 }
 
-struct VecIntersection<'a, T> {
+pub struct VecIntersection<'a, T> {
     a: &'a [T],
     b: &'a [T],
 }
 
-struct VecUnion<'a, T> {
+pub struct VecUnion<'a, T> {
     a: &'a [T],
     b: &'a [T],
 }
 
-struct VecSymDifference<'a, T> {
+pub struct VecSymDifference<'a, T> {
     a: &'a [T],
     b: &'a [T],
 }
@@ -166,7 +166,7 @@ where
     }
 }
 
-trait IdRange<'a> {
+pub trait IdRange<'a> {
     type SelfIter: Iterator<Item = &'a u32> + Clone;
     type DifferenceIter: Iterator<Item = &'a u32>;
     type SymmetricDifferenceIter: Iterator<Item = &'a u32>;
@@ -517,7 +517,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct IdSet<T> {
     products: Vec<IdRangeProduct<T>>,
 }
@@ -560,6 +560,10 @@ where
             first = false;
         }
         Ok(())
+    }
+
+    fn extend(&mut self, other: &Self) {
+        self.products.extend(other.products.iter().cloned());
     }
 
     fn len(self: &Self) -> usize {
@@ -864,7 +868,8 @@ impl fmt::Display for NodeSetParseError {
     }
 }
 
-struct NodeSet<T> {
+#[derive(Debug, Clone)]
+pub struct NodeSet<T> {
     dimnames: HashMap<NodeSetDimensions, Option<IdSet<T>>>,
 }
 
@@ -960,6 +965,15 @@ impl<T> NodeSet<T>
                         s.fold();
                     }
                 })
+        }
+
+        fn extend(&mut self, other: &Self) {
+            for (dimname, oset) in other.dimnames.iter() {
+                match self.dimnames.get_mut(dimname) {
+                    None => {self.dimnames.insert(dimname.clone(), oset.clone());},
+                    Some(set) => if let Some(s) = set {s.extend(oset.as_ref().unwrap())}
+                };
+            }
         }
 
         fn intersection(&mut self, other: &mut Self) -> Self {
@@ -1083,6 +1097,285 @@ impl<T> NodeSet<T>
         }
     }
 
+    #[allow(dead_code)]
+    pub(self) mod parsers {
+        use nom::{
+            bytes::complete::{take_while1, is_not, tag},
+            character::complete::{char, digit1, multispace0, multispace1, one_of},
+            sequence::{delimited, tuple, pair},
+            multi::{separated_nonempty_list, many0, fold_many0},
+            combinator::{map, map_res, opt, verify, all_consuming},
+            branch::alt,
+            IResult,
+        };
+        use std::fmt;
+        use std::num::ParseIntError;
+        fn not_whitespace(i: &str) -> IResult<&str, &str> {
+            is_not(" \t")(i)
+        }
+
+        fn is_component_char(c: char) -> bool {
+            char::is_alphabetic(c) || ['-','_','.'].contains(&c)
+        }
+
+
+
+        use super::{NodeSet, IdRange, IdRangeProduct, NodeSetDimensions, IdSet};
+
+        fn term<T>(i: &str) -> IResult<&str, NodeSet<T>>
+        where for <'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug {
+            alt((nodeset,
+                delimited(
+                    char('('),
+                    expr,
+                    char(')'))
+                 ))(i)
+        }
+
+        pub fn op(i: &str) -> IResult<&str, char>
+        {
+            delimited(
+                multispace0,
+                one_of("+,-&"),
+                multispace0
+              )(i)
+
+        }
+        pub fn space(i: &str) -> IResult<&str, char>
+        {
+            map(multispace1, |_| ' ')(i)
+        }
+
+        pub fn full_expr<T>(i: &str) -> IResult<&str, NodeSet<T>>
+        where for <'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug {
+            all_consuming(expr)(i)
+        }
+
+        pub fn expr<T>(i: &str) -> IResult<&str, NodeSet<T>>
+        where for <'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug {
+            let (i, ns) = term(i)?;
+            fold_many0(tuple((alt((op,space)), term)), ns,
+                |mut ns, mut t| {
+                    match t.0 {
+                        ',' | '+' | ' ' => {ns.extend(&t.1);},
+                        '-' => println!("{:?}.remove({:?})", ns, t.1),
+                        '&' => {ns = ns.intersection(&mut t.1);},
+                        _   => println!("no")
+                    }
+                    ns
+                })(i)
+        }
+/*
+        #[derive(Debug, PartialEq, Clone)]
+        struct SingleNodeSet {
+            ranges: Vec<Vec<IdRangeStep>>,
+            dims: Vec<String>,
+            has_suffix: bool
+        }
+
+        impl SingleNodeSet {
+            fn new() -> Self {
+                SingleNodeSet {
+                    ranges: vec![],
+                    dims: vec![],
+                    has_suffix: false
+                }
+            }
+        } */
+
+        fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>>
+        where for <'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug {
+            map(
+                verify(
+                    pair(
+                        many0(pair(node_component, alt((id_standalone, id_range_bracketed)))),
+                        opt(node_component)),
+                    |r| !r.0.is_empty() || r.1.is_some()),
+                |r| {
+                    let mut dims = NodeSetDimensions::new();
+                    let mut ranges = vec![];
+                    for (dim, rng) in r.0.into_iter() {
+                        let mut range = Vec::<u32>::new();
+                        for r in rng {
+                            range.extend((r.start..r.end+1).step_by(r.step));
+                        }
+                        ranges.push(T::new(range));
+                        dims.push(dim, false);
+                    }
+                    if let Some(dim) = r.1 {
+                        dims.push(dim, true);
+                    }
+
+                    let mut ns = NodeSet::new();
+                    if ranges.is_empty() {
+                        ns.dimnames.entry(dims).or_insert_with(|| None);
+                    }else{
+                        ns.dimnames.entry(dims).or_insert_with(|| Some(IdSet::new())).as_mut().unwrap().products.push(IdRangeProduct { ranges });
+                    }
+                    ns.fold();
+                    ns
+                })(i)
+        }
+
+        fn node_component(i: &str) -> IResult<&str, &str> {
+            take_while1(is_component_char)(i)
+        }
+
+        fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>> {
+            delimited(
+                    char('['),
+                    separated_nonempty_list(tag(","), id_range_step),
+                    char(']'))(i)
+        }
+
+        #[derive(Debug, PartialEq, Clone)]
+        struct IdRangeStep{
+            start: u32,
+            end: u32,
+            step: usize
+        }
+
+        fn id_standalone(i: &str) -> IResult<&str, Vec<IdRangeStep>> {
+            map_res(digit1,
+                    |d: &str| -> Result<Vec<IdRangeStep>, ParseIntError> {
+                        let start = d.parse::<u32>()?;
+                        Ok(vec![IdRangeStep{start, end: start, step: 1}])
+                    })(i)
+
+        }
+
+        fn id_range_step(i: &str) -> IResult<&str, IdRangeStep> {
+            map_res(pair(digit1,
+                         opt(tuple((
+                                 tag("-"),
+                                digit1,
+                                opt(
+                                    pair(
+                                        tag("/"),
+                                        digit1)))))),
+
+                        |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>) | -> Result<IdRangeStep, ParseIntError>{
+                            let start = s.0.parse::<u32>() ?;
+                            let (end, step) = match s.1 {
+                                None => {(start, 1)},
+                                Some(s1) => {
+                                    let end = s1.1.parse::<u32>() ?;
+                                    match s1.2 {
+                                        None => {(end, 1)},
+                                        Some((_, step)) => {(end, step.parse::<usize>()?)}
+                                    }
+                                }
+                            };
+                            Ok(IdRangeStep{start, end, step})
+                        }
+                        )(i)
+        }
+
+/*         #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            #[test]
+            fn test_not_whitespace() {
+                assert_eq!(not_whitespace("abcd efg"), Ok((" efg", "abcd")));
+                assert_eq!(not_whitespace("abcd\tefg"), Ok(("\tefg", "abcd")));
+                assert_eq!(not_whitespace(" abcdefg"), Err(nom::Err::Error((" abcdefg", nom::error::ErrorKind::IsNot))));
+            }
+
+            #[test]
+            fn test_id_range_step() {
+                assert_eq!(id_range_step("2"), Ok(("", IdRangeStep{start: 2,end: 2, step: 1})));
+                assert_eq!(id_range_step("2-34"), Ok(("", IdRangeStep{start: 2, end: 34, step: 1})));
+                assert_eq!(id_range_step("2-34/8"), Ok(("", IdRangeStep{start: 2, end: 34, step: 8})));
+
+                assert_eq!(id_range_step("-34/8"), Err(nom::Err::Error(("-34/8", nom::error::ErrorKind::Digit))));
+                assert_eq!(id_range_step("/8"), Err(nom::Err::Error(("/8", nom::error::ErrorKind::Digit))));
+                assert_eq!(id_range_step("34/8"), Ok(("/8", IdRangeStep{start: 34, end: 34, step: 1})));
+            }
+
+            #[test]
+            fn test_id_range_bracketed() {
+                assert_eq!(id_range_bracketed("[2]"), Ok(("", vec![IdRangeStep{start: 2,end: 2, step: 1}])));
+                assert_eq!(id_range_bracketed("[2,3-4,5-67/8]"),
+                            Ok(("",
+                            vec![
+                                IdRangeStep{start: 2, end: 2, step: 1},
+                                IdRangeStep{start: 3, end: 4, step: 1},
+                                IdRangeStep{start: 5, end: 67, step: 8}]
+                        )));
+
+                assert_eq!(id_range_bracketed("[2,]"), Err(nom::Err::Error((",]", nom::error::ErrorKind::Char))));
+                assert_eq!(id_range_bracketed("[/8]"), Err(nom::Err::Error(("/8]", nom::error::ErrorKind::Digit))));
+                assert_eq!(id_range_bracketed("[34-]"), Err(nom::Err::Error(("-]", nom::error::ErrorKind::Char))));
+
+            }
+
+            #[test]
+            fn test_nodeset() {
+                assert_eq!(nodeset("abcd"),
+                            Ok(("",
+                            SingleNodeSet{
+                                dims: vec!["abcd".into()],
+                                ranges: vec![],
+                                has_suffix: true},
+                        )));
+
+                assert_eq!(nodeset("abcd[2,3-4]ef[5]"),
+                        Ok(("",
+                        SingleNodeSet{
+                            dims: vec!["abcd".into(), "ef".into()],
+                            ranges: vec![
+                                        vec![
+                                            IdRangeStep{start: 2, end: 2, step: 1},
+                                            IdRangeStep{start: 3, end: 4, step: 1}],
+                                        vec![
+                                            IdRangeStep{start: 5, end: 5, step: 1},
+                                        ]],
+                            has_suffix: false},
+                    )));
+
+                assert_eq!(nodeset("ab_cd[2,3-4]-ef"),
+                    Ok(("",
+                    SingleNodeSet{
+                        dims: vec!["ab_cd".into(), "-ef".into()],
+                        ranges: vec![
+                                    vec![
+                                        IdRangeStep{start: 2, end: 2, step: 1},
+                                        IdRangeStep{start: 3, end: 4, step: 1}],
+                                    ],
+                        has_suffix: true},
+                )));
+
+                assert_eq!(nodeset("ab_cd[2,3-4][6-7]"),
+                    Ok(("[6-7]",
+                    SingleNodeSet{
+                    dims: vec!["ab_cd".into()],
+                    ranges: vec![
+                                vec![
+                                    IdRangeStep{start: 2, end: 2, step: 1},
+                                    IdRangeStep{start: 3, end: 4, step: 1}],
+                                ],
+                    has_suffix: false},
+                )));
+
+                assert_eq!(nodeset("[6-7]"), Err(nom::Err::Error(("[6-7]", nom::error::ErrorKind::Verify))));
+            }
+
+/*             #[test]
+            fn test_expr() {
+                assert_eq!(expr("a[1]+(b[2]&c[3])"), Ok(("", SingleNodeSet::new())))
+
+            } */
+            #[test]
+            fn test_node_component() {
+                assert_eq!(node_component("abcd efg"), Ok((" efg", "abcd")));
+                assert_eq!(node_component(" abcdefg"), Err(nom::Err::Error((" abcdefg", nom::error::ErrorKind::TakeWhile1))));
+                assert_eq!(node_component("a_b-c.d2efg"), Ok(("2efg", "a_b-c.d")));
+            }
+        } */
+    }
+
+
 fn main() {
     if let Err(e) = run() {
         println!("Error: {}", e)
@@ -1113,11 +1406,10 @@ fn run() -> Result<(), NodeSetParseError> {
 
     if let Some(matches) = matches.subcommand_matches("fold") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n = NodeSet::<IdRangeList>::new();
-
-        n.push(&nodeset)?;
+        let mut n = parsers::full_expr::<IdRangeList>(&nodeset).unwrap().1;
+  /*       n.push(&nodeset)?; */
         n.fold();
-/*         println!("{}", n); */
+/* /*         println!("{}", n); */
         if let Some(intersect) = matches.values_of("intersect").as_mut() {
             let intersect = intersect.join(" ");
             let mut i = NodeSet::<IdRangeList>::new();
@@ -1125,14 +1417,14 @@ fn run() -> Result<(), NodeSetParseError> {
             i.push(&intersect)?;
             i.fold();
             n = n.intersection(&mut i);
-        }
+        } */
         println!("{}", n);
-    } else if let Some(matches) = matches.subcommand_matches("expand") {
+    } /* else if let Some(matches) = matches.subcommand_matches("expand") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
         let mut n = NodeSet::<IdRangeList>::new();
         n.push(&nodeset)?;
         println!("{}", n.iter().join(" "));
-    }
+    } */
     Ok(())
 }
 

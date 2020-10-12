@@ -13,5 +13,6 @@ hashers = "1.0.1"
 rand = "0"
 itertools = "0"
 clap = "2"
+nom = "5.1"
 [features]
 unstable = []
