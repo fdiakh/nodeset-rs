@@ -962,7 +962,7 @@ where
     }
 }
 
-struct NodeSetParseError {
+pub struct NodeSetParseError {
     err: String,
 }
 
@@ -1165,6 +1165,22 @@ where
             }
         }
         NodeSet { dimnames: dimnames }
+    }
+}
+
+impl<T> std::str::FromStr for NodeSet<T>
+where
+    for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+{
+    type Err = NodeSetParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parsers::full_expr::<T>(s)
+            .map(|r| r.1)
+            .map_err(|e| match e {
+                nom::Err::Error(e) => NodeSetParseError::new(nom::error::convert_error(&s, e)),
+                _ => panic!("unreachable"),
+            })
     }
 }
 
