@@ -1121,7 +1121,7 @@ where
         }
     }
 
-    fn difference(&mut self, other: &mut Self) -> Self {
+    fn difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
         /*    println!("Start intersect"); */
         for (dimname, set) in self.dimnames.iter() {
@@ -1147,7 +1147,7 @@ where
         NodeSet { dimnames: dimnames }
     }
 
-    fn intersection(&mut self, other: &mut Self) -> Self {
+    fn intersection(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
         /*    println!("Start intersect"); */
         for (dimname, set) in self.dimnames.iter() {
@@ -1800,9 +1800,9 @@ mod tests {
     use super::*;
     #[test]
     fn test_nodeset_parse() {
-        let mut id1: NodeSet<IdRangeList> =
+        let id1: NodeSet<IdRangeList> =
             "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
-        let mut id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
         assert_eq!(
             id1.to_string(),
@@ -1810,19 +1810,19 @@ mod tests {
         );
         assert_eq!(id2.to_string(), "x[2-5]y[7]z[2-3]");
         assert_eq!(
-            id1.intersection(&mut id2).to_string(),
+            id1.intersection(&id2).to_string(),
             "x[3,5]y[7]z[3],x[3,5]y[7]z[2]"
         );
     }
 
     #[test]
     fn test_nodeset_intersect() {
-        let mut id1: NodeSet<IdRangeList> =
+        let id1: NodeSet<IdRangeList> =
             "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
-        let mut id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
         assert_eq!(
-            id1.intersection(&mut id2).fold().to_string(),
+            id1.intersection(&id2).fold().to_string(),
             "x[3,5]y[7]z[2-3]"
         );
     }
