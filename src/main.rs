@@ -573,7 +573,7 @@ where
     }
 
     fn len(self: &Self) -> usize {
-        self.ranges.iter().map(|r| r.len()).sum()
+        self.ranges.iter().map(|r| r.len()).product()
     }
 
     fn num_axis(self: &Self) -> usize {
@@ -1086,6 +1086,13 @@ where
         }
     }
 
+    fn len(&self) -> usize {
+        self.dimnames
+            .iter()
+            .map(|(_, set)| set.as_ref().map(|s| s.len()).unwrap_or(1))
+            .sum()
+    }
+
     fn iter<'a>(&'a self) -> NodeSetIter<'a, T> {
         /* println!("{:?}", self.dimnames); */
         let mut dim_iter = self.dimnames.iter().peekable();
@@ -1530,7 +1537,7 @@ fn run() -> Result<(), NodeSetParseError> {
 
     if let Some(matches) = matches.subcommand_matches("fold") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n = parsers::full_expr::<IdRangeTree>(&nodeset)
+        let mut n = parsers::full_expr::<IdRangeList>(&nodeset)
             .map_err(|e| match e {
                 nom::Err::Error(e) => {
                     NodeSetParseError::new(nom::error::convert_error(&nodeset, e))
@@ -1542,7 +1549,7 @@ fn run() -> Result<(), NodeSetParseError> {
         println!("{}", n);
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let n = parsers::full_expr::<IdRangeTree>(&nodeset)
+        let n = parsers::full_expr::<IdRangeList>(&nodeset)
             .map_err(|e| match e {
                 nom::Err::Error(e) => {
                     NodeSetParseError::new(nom::error::convert_error(&nodeset, e))
@@ -1800,8 +1807,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_nodeset_parse() {
-        let id1: NodeSet<IdRangeList> =
-            "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
+        let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
         let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
         assert_eq!(
@@ -1817,8 +1823,7 @@ mod tests {
 
     #[test]
     fn test_nodeset_intersect() {
-        let id1: NodeSet<IdRangeList> =
-            "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
+        let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
         let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
         assert_eq!(
@@ -1872,17 +1877,27 @@ mod tests {
     }
 
     #[test]
-    fn test_idset_fold() {
-        let mut id1 = parsers::full_expr::<IdRangeList>("a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2")
-            .unwrap()
-            .1;
-        let mut id2 = parsers::full_expr::<IdRangeList>("a[0-10]b[0-10],a[0-20]b[0-10]")
-            .unwrap()
-            .1;
-        let mut id3 =
-            parsers::full_expr::<IdRangeList>("x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]")
-                .unwrap()
-                .1;
+    fn test_nodeset_len() {
+        let id1: NodeSet<IdRangeList> = "a b".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "a[0-9]b".parse().unwrap();
+        let id3: NodeSet<IdRangeList> = "a[0-9]b[0-8]".parse().unwrap();
+        let id4: NodeSet<IdRangeList> = "a[0-10000] b[0-100]".parse().unwrap();
+
+        assert_eq!(id1.len(), 2);
+        assert_eq!(id2.len(), 10);
+        assert_eq!(id3.len(), 90);
+        assert_eq!(id4.len(), 10102);
+    }
+
+    #[test]
+    fn test_nodeset_fold() {
+        let mut id1: NodeSet<IdRangeList> =
+            "a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2".parse().unwrap();
+        let mut id2: NodeSet<IdRangeList> = "a[0-10]b[0-10],a[0-20]b[0-10]".parse().unwrap();
+        let mut id3: NodeSet<IdRangeList> = "x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]"
+            .parse()
+            .unwrap();
+
         id1.fold();
         id2.fold();
         id3.fold();
