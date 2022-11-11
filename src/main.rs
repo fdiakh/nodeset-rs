@@ -1,14 +1,9 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
 use clap::{App, Arg, SubCommand};
-use fnv::{FnvBuildHasher, FnvHashSet};
 use itertools;
 use itertools::Itertools;
 use std::collections::btree_set;
-use std::collections::hash_set::{
-    Difference as HSDifference, Intersection as HSIntersection,
-    SymmetricDifference as HSSymmetricDifference, Union as HSUnion,
-};
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 
@@ -22,11 +17,6 @@ impl PartialEq for IdRangeList {
     fn eq(&self, other: &Self) -> bool {
         self.indexes == other.indexes
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct IdRangeSet {
-    indexes: FnvHashSet<u32>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -53,8 +43,6 @@ pub struct VecSymDifference<'a, T> {
     a: &'a [T],
     b: &'a [T],
 }
-
-impl IdRangeSet {}
 
 impl IdRangeList {}
 
@@ -256,93 +244,6 @@ impl<'a> IdRange<'a> for IdRangeTree {
     fn push_idrs(self: &mut Self, idrs: &IdRangeStep) {
         self.indexes
             .extend((idrs.start..idrs.end + 1).step_by(idrs.step))
-    }
-}
-
-impl<'a> IdRange<'a> for IdRangeSet {
-    type DifferenceIter = HSDifference<'a, u32, FnvBuildHasher>;
-    type SymmetricDifferenceIter = HSSymmetricDifference<'a, u32, FnvBuildHasher>;
-    type IntersectionIter = HSIntersection<'a, u32, FnvBuildHasher>;
-    type UnionIter = HSUnion<'a, u32, FnvBuildHasher>;
-    type SelfIter = std::collections::hash_set::Iter<'a, u32>;
-
-    fn len(self: &Self) -> usize {
-        self.indexes.len()
-    }
-
-    fn push(self: &mut Self, other: &Self) {
-        self.indexes.extend(&other.indexes);
-    }
-
-    fn sort(self: &mut Self) {}
-
-    fn new_empty() -> Self {
-        IdRangeSet {
-            indexes: FnvHashSet::with_hasher(Default::default()),
-        }
-    }
-
-    fn new(indexes: Vec<u32>) -> IdRangeSet {
-        let mut bt: FnvHashSet<u32> = FnvHashSet::with_hasher(Default::default());
-        bt.extend(&indexes);
-        IdRangeSet { indexes: bt }
-    }
-    fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
-        return self.indexes.difference(&other.indexes);
-    }
-    fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter {
-        return self.indexes.symmetric_difference(&other.indexes);
-    }
-    fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter {
-        return self.indexes.intersection(&other.indexes);
-    }
-    fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter {
-        return self.indexes.union(&other.indexes);
-    }
-    fn contains(self: &Self, id: u32) -> bool {
-        return self.indexes.contains(&id);
-    }
-    fn is_empty(self: &Self) -> bool {
-        return self.indexes.is_empty();
-    }
-    fn iter(self: &'a Self) -> Self::SelfIter {
-        return self.indexes.iter();
-    }
-    fn force_sorted(self) -> Self {
-        self
-    }
-    fn push_idrs(self: &mut Self, idrs: &IdRangeStep) {
-        self.indexes
-            .extend((idrs.start..idrs.end + 1).step_by(idrs.step))
-    }
-}
-
-impl fmt::Display for IdRangeSet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut indexes = self.indexes.iter().collect::<Vec<_>>();
-        indexes.sort_unstable();
-
-        let mut rngs = self
-            .indexes
-            .iter()
-            .zip(indexes.iter().chain(indexes.iter().last()).skip(1))
-            .batching(|it| {
-                if let Some((&first, &&next)) = it.next() {
-                    if next != first + 1 {
-                        return Some(first.to_string());
-                    }
-                    for (&cur, &&next) in it {
-                        if next != cur + 1 {
-                            return Some(format!("{}-{}", first, cur));
-                        }
-                    }
-                    // Should never be reached
-                    None
-                } else {
-                    None
-                }
-            });
-        write!(f, "[{}]", rngs.join(","))
     }
 }
 
@@ -1669,9 +1570,9 @@ mod benchs {
         (rl1, rl2)
     }
 
-    fn prepare_rangesets(count1: u32, count2: u32) -> (IdRangeSet, IdRangeSet) {
+    fn prepare_rangesets(count1: u32, count2: u32) -> (IdRangeTree, IdRangeTree) {
         let (v1, v2) = prepare_vectors(count1, count2);
-        (IdRangeSet::new(v1.clone()), IdRangeSet::new(v2.clone()))
+        (IdRangeTree::new(v1.clone()), IdRangeTree::new(v2.clone()))
     }
 
     const DEFAULT_COUNT: u32 = 100;
@@ -1788,7 +1689,7 @@ mod benchs {
     fn bench_rangeset_creation(b: &mut Bencher) {
         let (v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         b.iter(|| {
-            let _rs1 = IdRangeSet::new(v1.clone());
+            let _rs1 = IdRangeTree::new(v1.clone());
         });
     }
 
@@ -1797,7 +1698,7 @@ mod benchs {
         let (mut v1, _) = prepare_vectors(DEFAULT_COUNT, DEFAULT_COUNT);
         v1.sort();
         b.iter(|| {
-            let _rs1 = IdRangeSet::new(v1.clone());
+            let _rs1 = IdRangeTree::new(v1.clone());
         });
     }
 
@@ -1805,7 +1706,7 @@ mod benchs {
     fn bench_rangeset_creation_ranges(b: &mut Bencher) {
         let v1 = prepare_vector_ranges(100, 10);
         b.iter(|| {
-            let _rs1 = IdRangeSet::new(v1.clone());
+            let _rs1 = IdRangeTree::new(v1.clone());
         });
     }
 
@@ -1824,8 +1725,8 @@ mod benchs {
 
     #[bench]
     fn bench_idset_intersection_set(b: &mut Bencher) {
-        let mut id1: IdSet<IdRangeSet> = IdSet::new();
-        let mut id2: IdSet<IdRangeSet> = IdSet::new();
+        let mut id1: IdSet<IdRangeTree> = IdSet::new();
+        let mut id2: IdSet<IdRangeTree> = IdSet::new();
 
         id1.push("node[0-1000000]");
         id2.push("node[1-1000001]");
@@ -1858,7 +1759,7 @@ mod benchs {
     #[bench]
     fn bench_idset_split_set(b: &mut Bencher) {
         b.iter(|| {
-            let mut id1: IdSet<IdRangeSet> = IdSet::new();
+            let mut id1: IdSet<IdRangeTree> = IdSet::new();
             id1.push("node[0-100000]");
             id1.full_split();
         });
@@ -1867,7 +1768,7 @@ mod benchs {
     #[bench]
     fn bench_idset_merge(b: &mut Bencher) {
         b.iter(|| {
-            let mut id1: IdSet<IdRangeList> = IdSet::new();
+            let mut id1: IdSet<IdRangeTree> = IdSet::new();
             id1.push("node[0-100000]");
             id1.full_split();
             id1.merge();
