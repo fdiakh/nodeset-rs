@@ -986,7 +986,7 @@ impl fmt::Display for NodeSetParseError {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NodeSet<T> {
     dimnames: HashMap<NodeSetDimensions, Option<IdSet<T>>>,
 }
@@ -1223,7 +1223,11 @@ pub(self) mod parsers {
     where
         for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((nodeset, delimited(char('('), expr, char(')'))))(i)
+        delimited(
+            multispace0,
+            alt((nodeset, delimited(char('('), expr, char(')')))),
+            multispace0,
+        )(i)
     }
 
     pub fn op(i: &str) -> IResult<&str, char, VerboseError<&str>> {
@@ -1245,16 +1249,16 @@ pub(self) mod parsers {
         for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         let (i, ns) = term(i)?;
-        fold_many0(tuple((alt((op, space)), term)), ns, |mut ns, mut t| {
+        fold_many0(tuple((opt(op), term)), ns, |mut ns, mut t| {
             match t.0 {
-                ',' | '+' | ' ' => {
+                Some(',') | Some('+') | None => {
                     ns.extend(&t.1);
                 }
-                '!' => {
+                Some('!') => {
                     ns = ns.difference(&mut t.1);
                 }
-                '^' => println!("{:?}.xor({:?})", ns, t.1),
-                '&' => {
+                Some('^') => println!("{:?}.xor({:?})", ns, t.1),
+                Some('&') => {
                     ns = ns.intersection(&mut t.1);
                 }
                 _ => println!("no"),
@@ -1262,23 +1266,6 @@ pub(self) mod parsers {
             ns
         })(i)
     }
-    /*
-    #[derive(Debug, PartialEq, Clone)]
-    struct SingleNodeSet {
-        ranges: Vec<Vec<IdRangeStep>>,
-        dims: Vec<String>,
-        has_suffix: bool
-    }
-
-    impl SingleNodeSet {
-        fn new() -> Self {
-            SingleNodeSet {
-                ranges: vec![],
-                dims: vec![],
-                has_suffix: false
-            }
-        }
-    } */
 
     fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
     where
@@ -1381,108 +1368,120 @@ pub(self) mod parsers {
                         )(i)
     }
 
-    /*         #[cfg(test)]
-            mod tests {
-                use super::*;
+    #[cfg(test)]
+    mod tests {
+        use super::*;
 
-                #[test]
-                fn test_not_whitespace() {
-                    assert_eq!(not_whitespace("abcd efg"), Ok((" efg", "abcd")));
-                    assert_eq!(not_whitespace("abcd\tefg"), Ok(("\tefg", "abcd")));
-                    assert_eq!(not_whitespace(" abcdefg"), Err(nom::Err::Error((" abcdefg", nom::error::ErrorKind::IsNot))));
-                }
+        #[test]
+        fn test_not_whitespace() {
+            assert_eq!(not_whitespace("abcd efg"), Ok((" efg", "abcd")));
+            assert_eq!(not_whitespace("abcd\tefg"), Ok(("\tefg", "abcd")));
+            assert_eq!(
+                not_whitespace(" abcdefg"),
+                Err(nom::Err::Error((" abcdefg", nom::error::ErrorKind::IsNot)))
+            );
+        }
 
-                #[test]
-                fn test_id_range_step() {
-                    assert_eq!(id_range_step("2"), Ok(("", IdRangeStep{start: 2,end: 2, step: 1})));
-                    assert_eq!(id_range_step("2-34"), Ok(("", IdRangeStep{start: 2, end: 34, step: 1})));
-                    assert_eq!(id_range_step("2-34/8"), Ok(("", IdRangeStep{start: 2, end: 34, step: 8})));
+        #[test]
+        fn test_id_range_step() {
+            assert_eq!(
+                id_range_step("2"),
+                Ok((
+                    "",
+                    IdRangeStep {
+                        start: 2,
+                        end: 2,
+                        step: 1
+                    }
+                ))
+            );
+            assert_eq!(
+                id_range_step("2-34"),
+                Ok((
+                    "",
+                    IdRangeStep {
+                        start: 2,
+                        end: 34,
+                        step: 1
+                    }
+                ))
+            );
+            assert_eq!(
+                id_range_step("2-34/8"),
+                Ok((
+                    "",
+                    IdRangeStep {
+                        start: 2,
+                        end: 34,
+                        step: 8
+                    }
+                ))
+            );
 
-                    assert_eq!(id_range_step("-34/8"), Err(nom::Err::Error(("-34/8", nom::error::ErrorKind::Digit))));
-                    assert_eq!(id_range_step("/8"), Err(nom::Err::Error(("/8", nom::error::ErrorKind::Digit))));
-                    assert_eq!(id_range_step("34/8"), Ok(("/8", IdRangeStep{start: 34, end: 34, step: 1})));
-                }
+            assert!(id_range_step("-34/8").is_err());
+            assert!(id_range_step("/8").is_err());
+            assert_eq!(
+                id_range_step("34/8"),
+                Ok((
+                    "/8",
+                    IdRangeStep {
+                        start: 34,
+                        end: 34,
+                        step: 1
+                    }
+                ))
+            );
+        }
 
-                #[test]
-                fn test_id_range_bracketed() {
-                    assert_eq!(id_range_bracketed("[2]"), Ok(("", vec![IdRangeStep{start: 2,end: 2, step: 1}])));
-                    assert_eq!(id_range_bracketed("[2,3-4,5-67/8]"),
-                                Ok(("",
-                                vec![
-                                    IdRangeStep{start: 2, end: 2, step: 1},
-                                    IdRangeStep{start: 3, end: 4, step: 1},
-                                    IdRangeStep{start: 5, end: 67, step: 8}]
-                            )));
+        #[test]
+        fn test_id_range_bracketed() {
+            assert_eq!(
+                id_range_bracketed("[2]"),
+                Ok((
+                    "",
+                    vec![IdRangeStep {
+                        start: 2,
+                        end: 2,
+                        step: 1
+                    }]
+                ))
+            );
+            assert_eq!(
+                id_range_bracketed("[2,3-4,5-67/8]"),
+                Ok((
+                    "",
+                    vec![
+                        IdRangeStep {
+                            start: 2,
+                            end: 2,
+                            step: 1
+                        },
+                        IdRangeStep {
+                            start: 3,
+                            end: 4,
+                            step: 1
+                        },
+                        IdRangeStep {
+                            start: 5,
+                            end: 67,
+                            step: 8
+                        }
+                    ]
+                ))
+            );
 
-                    assert_eq!(id_range_bracketed("[2,]"), Err(nom::Err::Error((",]", nom::error::ErrorKind::Char))));
-                    assert_eq!(id_range_bracketed("[/8]"), Err(nom::Err::Error(("/8]", nom::error::ErrorKind::Digit))));
-                    assert_eq!(id_range_bracketed("[34-]"), Err(nom::Err::Error(("-]", nom::error::ErrorKind::Char))));
+            assert!(id_range_bracketed("[2,]").is_err());
+            assert!(id_range_bracketed("[/8]").is_err());
+            assert!(id_range_bracketed("[34-]").is_err());
+        }
 
-                }
-
-                #[test]
-                fn test_nodeset() {
-                    assert_eq!(nodeset("abcd"),
-                                Ok(("",
-                                SingleNodeSet{
-                                    dims: vec!["abcd".into()],
-                                    ranges: vec![],
-                                    has_suffix: true},
-                            )));
-
-                    assert_eq!(nodeset("abcd[2,3-4]ef[5]"),
-                            Ok(("",
-                            SingleNodeSet{
-                                dims: vec!["abcd".into(), "ef".into()],
-                                ranges: vec![
-                                            vec![
-                                                IdRangeStep{start: 2, end: 2, step: 1},
-                                                IdRangeStep{start: 3, end: 4, step: 1}],
-                                            vec![
-                                                IdRangeStep{start: 5, end: 5, step: 1},
-                                            ]],
-                                has_suffix: false},
-                        )));
-
-                    assert_eq!(nodeset("ab_cd[2,3-4]-ef"),
-                        Ok(("",
-                        SingleNodeSet{
-                            dims: vec!["ab_cd".into(), "-ef".into()],
-                            ranges: vec![
-                                        vec![
-                                            IdRangeStep{start: 2, end: 2, step: 1},
-                                            IdRangeStep{start: 3, end: 4, step: 1}],
-                                        ],
-                            has_suffix: true},
-                    )));
-
-                    assert_eq!(nodeset("ab_cd[2,3-4][6-7]"),
-                        Ok(("[6-7]",
-                        SingleNodeSet{
-                        dims: vec!["ab_cd".into()],
-                        ranges: vec![
-                                    vec![
-                                        IdRangeStep{start: 2, end: 2, step: 1},
-                                        IdRangeStep{start: 3, end: 4, step: 1}],
-                                    ],
-                        has_suffix: false},
-                    )));
-
-                    assert_eq!(nodeset("[6-7]"), Err(nom::Err::Error(("[6-7]", nom::error::ErrorKind::Verify))));
-                }
-
-    /*             #[test]
-                fn test_expr() {
-                    assert_eq!(expr("a[1]+(b[2]&c[3])"), Ok(("", SingleNodeSet::new())))
-
-                } */
-                #[test]
-                fn test_node_component() {
-                    assert_eq!(node_component("abcd efg"), Ok((" efg", "abcd")));
-                    assert_eq!(node_component(" abcdefg"), Err(nom::Err::Error((" abcdefg", nom::error::ErrorKind::TakeWhile1))));
-                    assert_eq!(node_component("a_b-c.d2efg"), Ok(("2efg", "a_b-c.d")));
-                }
-            } */
+        #[test]
+        fn test_node_component() {
+            assert_eq!(node_component("abcd efg"), Ok((" efg", "abcd")));
+            assert!(node_component(" abcdefg").is_err());
+            assert_eq!(node_component("a_b-c.d2efg"), Ok(("2efg", "a_b-c.d")));
+        }
+    }
 }
 
 use nom;
