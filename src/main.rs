@@ -916,12 +916,16 @@ where
 
     fn difference(self: &Self, other: &Self) -> Option<Self> {
         let mut products = Vec::<IdRangeProduct<T>>::new();
-        for (sidpr, oidpr) in self
-            .products
-            .iter()
-            .cartesian_product(other.products.iter())
-        {
-            products.extend(sidpr.difference(oidpr))
+        for sidpr in self.products.iter() {
+            let mut nidpr = vec![sidpr.clone()];
+            for oidpr in other.products.iter() {
+                nidpr = nidpr
+                    .iter()
+                    .map(|pr| pr.difference(oidpr))
+                    .flatten()
+                    .collect();
+            }
+            products.extend(nidpr)
         }
         if products.is_empty() {
             None
