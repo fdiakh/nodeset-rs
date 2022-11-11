@@ -897,7 +897,7 @@ where
             .collect();
     }
 
-    fn fold(self: &mut Self) {
+    fn fold(&mut self) -> &mut Self {
         for p in &mut self.products {
             p.prepare_sort()
         }
@@ -910,6 +910,8 @@ where
             self.full_split();
         }
         self.merge();
+
+        self
     }
 
     fn difference(self: &Self, other: &Self) -> Option<Self> {
@@ -1093,13 +1095,15 @@ where
         NodeSetIter { dim_iter, set_iter }
     }
 
-    fn fold(self: &mut Self) {
+    fn fold(&mut self) -> &mut Self {
         /* println!("fold {:?}", self.dimnames); */
         self.dimnames.values_mut().for_each(|s| {
             if let Some(s) = s {
                 s.fold();
             }
-        })
+        });
+
+        self
     }
 
     fn extend(&mut self, other: &Self) {
@@ -1794,40 +1798,34 @@ mod benchs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /*    #[test]
-        fn test_nodeset_parse() {
-            let mut id1: NodeSet<IdRangeList> = NodeSet::new();
-            let mut id2: NodeSet<IdRangeList> = NodeSet::new();
+    #[test]
+    fn test_nodeset_parse() {
+        let mut id1: NodeSet<IdRangeList> =
+            "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
+        let mut id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
-            id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2").unwrap();
-            id2.push("x[2-5]y[7]z[2,3]").unwrap();
+        assert_eq!(
+            id1.to_string(),
+            "x[1,3,5,7,9]y[1-7]z[3],x[1,3,5,7,9]y[1-7]z[2]"
+        );
+        assert_eq!(id2.to_string(), "x[2-5]y[7]z[2-3]");
+        assert_eq!(
+            id1.intersection(&mut id2).to_string(),
+            "x[3,5]y[7]z[3],x[3,5]y[7]z[2]"
+        );
+    }
 
-            assert_eq!(
-                id1.to_string(),
-                "x[1,3,5,7,9,5]y[1-7]z[3],x[1,3,5,7,9,5]y[1-7]z[2]"
-            );
-            assert_eq!(id2.to_string(), "x[2-5]y[7]z[2-3]");
-    /*         assert_eq!(
-                id1.intersection(&id2).to_string(),
-                "[3,5][7][3],[3,5][7][2]"
-            ); */
-        }
+    #[test]
+    fn test_nodeset_intersect() {
+        let mut id1: NodeSet<IdRangeList> =
+            "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
+        let mut id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
 
-        #[test]
-        fn test_nodeset_intersect() {
-            let mut id1: NodeSet<IdRangeList> = NodeSet::new();
-            let mut id2: NodeSet<IdRangeList> = NodeSet::new();
-
-            id1.push("x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2").unwrap();
-            id2.push("x[2-5]y[7]z[2,3]").unwrap();
-
-            id1.fold();
-            id2.fold();
-            assert_eq!(
-                id1.intersection(&mut id2).to_string(),
-                "x[3,5]y[7]z[2-3]"
-            );
-        } */
+        assert_eq!(
+            id1.intersection(&mut id2).fold().to_string(),
+            "x[3,5]y[7]z[2-3]"
+        );
+    }
 
     #[test]
     fn test_idrangeproduct_iter() {
@@ -1894,23 +1892,15 @@ mod tests {
         assert_eq!(id3.to_string(), "x[0-7]y[0-10],x[8-18]y[0-18]");
     }
 
-    /*     #[test]
+    #[test]
     fn test_nodeset_iter() {
-
-        let mut id1: NodeSet<IdRangeList> = NodeSet::new();
-        id1.push("a[1-2]b[1-2]").unwrap();
+        let id1: NodeSet<IdRangeList> = "a[1-2]b[1-2]".parse().unwrap();
 
         assert_eq!(
-                id1.iter().collect::<Vec<_>>(),
-                vec![
-                    "a1b1",
-                    "a1b2",
-                    "a2b1",
-                    "a2b2",
-                ]
+            id1.iter().collect::<Vec<_>>(),
+            vec!["a1b1", "a1b2", "a2b1", "a2b2",]
         );
-
-    } */
+    }
 
     #[test]
     fn test_exponential_search() {
@@ -2036,20 +2026,20 @@ mod tests {
         );
         assert_eq!(rl1.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
     }
-    // TODO: once we restore sorted test
-    /* #[test]
+
+    #[test]
     #[should_panic]
-    fn rangelist_difference_bad1(){
+    fn rangelist_difference_bad1() {
         let rl1 = IdRangeList {
             indexes: vec![1, 2, 3],
-            sorted: true
+            sorted: true,
         };
 
         let rl2 = IdRangeList {
-            indexes: vec![1, 3],
-            sorted: false
+            indexes: vec![3, 1],
+            sorted: false,
         };
 
         rl1.difference(&rl2);
-    } */
+    }
 }
