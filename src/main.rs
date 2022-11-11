@@ -1001,6 +1001,33 @@ where
     set_iter: Option<IdSetIter<'a, T>>,
 }
 
+impl<'b, T> NodeSetIter<'b, T>
+where
+    for<'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+{
+    fn new(dims: &'b HashMap<NodeSetDimensions, Option<IdSet<T>>>) -> Self {
+        let mut it = Self {
+            dim_iter: dims.iter().peekable(),
+            set_iter: None,
+        };
+        it.init_dims();
+        it
+    }
+
+    fn next_dims(&mut self) {
+        self.dim_iter.next();
+        self.init_dims()
+    }
+
+    fn init_dims(&mut self) {
+        self.set_iter = self
+            .dim_iter
+            .peek()
+            .and_then(|dims| dims.1.as_ref())
+            .map(|s| s.iter());
+    }
+}
+
 impl<'b, T> Iterator for NodeSetIter<'b, T>
 where
     for<'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -1009,13 +1036,16 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(coords) = self.set_iter.as_mut()?.next() {
+            let dimnames = &self.dim_iter.peek()?.0.dimnames;
+            let Some(set_iter) = self.set_iter.as_mut() else {
+                self.next_dims();
+                return Some(dimnames.iter().join(""));
+            };
+
+            if let Some(coords) = set_iter.next() {
                 /* println!("next coord"); */
                 return Some(
-                    self.dim_iter
-                        .peek()?
-                        .0
-                        .dimnames
+                    dimnames
                         .iter()
                         .zip(coords.iter())
                         .map(|(a, b)| format!("{}{}", a, b))
@@ -1023,8 +1053,7 @@ where
                 );
             } else {
                 /* println!("next dim"); */
-                self.dim_iter.next();
-                self.set_iter = self.dim_iter.peek()?.1.as_ref().map(|s| s.iter());
+                self.next_dims();
             }
         }
     }
@@ -1095,11 +1124,7 @@ where
 
     fn iter<'a>(&'a self) -> NodeSetIter<'a, T> {
         /* println!("{:?}", self.dimnames); */
-        let mut dim_iter = self.dimnames.iter().peekable();
-        let set_iter = dim_iter
-            .peek()
-            .and_then(|s| s.1.as_ref().map(|ss| ss.iter()));
-        NodeSetIter { dim_iter, set_iter }
+        NodeSetIter::new(&self.dimnames)
     }
 
     fn fold(&mut self) -> &mut Self {
@@ -1257,11 +1282,11 @@ pub(self) mod parsers {
                 Some('!') => {
                     ns = ns.difference(&mut t.1);
                 }
-                Some('^') => println!("{:?}.xor({:?})", ns, t.1),
+                Some('^') => unimplemented!(), //TODO
                 Some('&') => {
                     ns = ns.intersection(&mut t.1);
                 }
-                _ => println!("no"),
+                _ => unreachable!(),
             }
             ns
         })(i)
@@ -1548,7 +1573,7 @@ fn run() -> Result<(), NodeSetParseError> {
         println!("{}", n);
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let n = parsers::full_expr::<IdRangeList>(&nodeset)
+        let mut n = parsers::full_expr::<IdRangeList>(&nodeset)
             .map_err(|e| match e {
                 nom::Err::Error(e) => {
                     NodeSetParseError::new(nom::error::convert_error(&nodeset, e))
@@ -1556,6 +1581,7 @@ fn run() -> Result<(), NodeSetParseError> {
                 _ => panic!("unreachable"),
             })?
             .1;
+        n.fold();
         println!("{}", n.iter().join(" "));
     }
     Ok(())
