@@ -531,6 +531,7 @@ where
     fn difference(&'a self, other: &'a Self) -> Vec<IdRangeProduct<T>> {
         let mut products = vec![];
 
+        let mut next_ranges = self.ranges.clone();
         for (i, (sidr, oidr)) in self.ranges.iter().zip(other.ranges.iter()).enumerate() {
             let rng = T::new(sidr.difference(&oidr).cloned().collect::<Vec<u32>>()).force_sorted();
             if rng.is_empty() {
@@ -540,17 +541,12 @@ where
                 return vec![self.clone()];
             }
 
-            let mut ranges = Vec::<T>::new();
-            for (j, r) in self.ranges.iter().enumerate() {
-                if i == j {
-                    /*todo: remove useless clone */
-                    ranges.push(rng.clone());
-                } else {
-                    ranges.push(r.clone());
-                }
-            }
+            let mut ranges = next_ranges.clone();
             ranges[i] = rng;
             products.push(IdRangeProduct { ranges });
+
+            next_ranges[i] =
+                T::new(oidr.intersection(&sidr).cloned().collect::<Vec<u32>>()).force_sorted();
         }
         products
     }
