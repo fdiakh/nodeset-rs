@@ -166,20 +166,33 @@ pub struct IdRangeStep {
     step: usize,
 }
 
-pub trait IdRange<'a> {
-    type SelfIter: Iterator<Item = &'a u32> + Clone;
-    type DifferenceIter: Iterator<Item = &'a u32>;
-    type SymmetricDifferenceIter: Iterator<Item = &'a u32>;
-    type IntersectionIter: Iterator<Item = &'a u32>;
-    type UnionIter: Iterator<Item = &'a u32>;
+pub trait IdRange {
+    type SelfIter<'a>: Iterator<Item = &'a u32> + Clone
+    where
+        Self: 'a;
+    type DifferenceIter<'a>: Iterator<Item = &'a u32>
+    where
+        Self: 'a;
+    type SymmetricDifferenceIter<'a>: Iterator<Item = &'a u32>
+    where
+        Self: 'a;
+    type IntersectionIter<'a>: Iterator<Item = &'a u32>
+    where
+        Self: 'a;
+    type UnionIter<'a>: Iterator<Item = &'a u32>
+    where
+        Self: 'a;
 
     fn new(indexes: Vec<u32>) -> Self;
     fn new_empty() -> Self;
-    fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter;
-    fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter;
-    fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter;
-    fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter;
-    fn iter(self: &'a Self) -> Self::SelfIter;
+    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a>;
+    fn symmetric_difference<'a>(
+        self: &'a Self,
+        other: &'a Self,
+    ) -> Self::SymmetricDifferenceIter<'a>;
+    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a>;
+    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a>;
+    fn iter<'a>(self: &'a Self) -> Self::SelfIter<'a>;
     fn contains(self: &Self, id: u32) -> bool;
     fn is_empty(self: &Self) -> bool;
     fn push(self: &mut Self, other: &Self);
@@ -189,12 +202,12 @@ pub trait IdRange<'a> {
     fn force_sorted(self) -> Self;
 }
 
-impl<'a> IdRange<'a> for IdRangeTree {
-    type DifferenceIter = btree_set::Difference<'a, u32>;
-    type SymmetricDifferenceIter = btree_set::SymmetricDifference<'a, u32>;
-    type IntersectionIter = btree_set::Intersection<'a, u32>;
-    type UnionIter = btree_set::Union<'a, u32>;
-    type SelfIter = btree_set::Iter<'a, u32>;
+impl IdRange for IdRangeTree {
+    type DifferenceIter<'a> = btree_set::Difference<'a, u32>;
+    type SymmetricDifferenceIter<'a> = btree_set::SymmetricDifference<'a, u32>;
+    type IntersectionIter<'a> = btree_set::Intersection<'a, u32>;
+    type UnionIter<'a> = btree_set::Union<'a, u32>;
+    type SelfIter<'a> = btree_set::Iter<'a, u32>;
 
     fn len(self: &Self) -> usize {
         self.indexes.len()
@@ -217,16 +230,19 @@ impl<'a> IdRange<'a> for IdRangeTree {
         bt.extend(&indexes);
         IdRangeTree { indexes: bt }
     }
-    fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
+    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a> {
         return self.indexes.difference(&other.indexes);
     }
-    fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter {
+    fn symmetric_difference<'a>(
+        self: &'a Self,
+        other: &'a Self,
+    ) -> Self::SymmetricDifferenceIter<'a> {
         return self.indexes.symmetric_difference(&other.indexes);
     }
-    fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter {
+    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a> {
         return self.indexes.intersection(&other.indexes);
     }
-    fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter {
+    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a> {
         return self.indexes.union(&other.indexes);
     }
     fn contains(self: &Self, id: u32) -> bool {
@@ -235,7 +251,7 @@ impl<'a> IdRange<'a> for IdRangeTree {
     fn is_empty(self: &Self) -> bool {
         return self.indexes.is_empty();
     }
-    fn iter(self: &'a Self) -> Self::SelfIter {
+    fn iter<'b>(self: &'b Self) -> Self::SelfIter<'b> {
         return self.indexes.iter();
     }
     fn force_sorted(self) -> Self {
@@ -278,12 +294,12 @@ where
     }
 }
 
-impl<'a> IdRange<'a> for IdRangeList {
-    type DifferenceIter = VecDifference<'a, u32>;
-    type IntersectionIter = VecIntersection<'a, u32>;
-    type UnionIter = VecUnion<'a, u32>;
-    type SymmetricDifferenceIter = VecSymDifference<'a, u32>;
-    type SelfIter = std::slice::Iter<'a, u32>;
+impl IdRange for IdRangeList {
+    type DifferenceIter<'a> = VecDifference<'a, u32>;
+    type IntersectionIter<'a> = VecIntersection<'a, u32>;
+    type UnionIter<'a> = VecUnion<'a, u32>;
+    type SymmetricDifferenceIter<'a> = VecSymDifference<'a, u32>;
+    type SelfIter<'a> = std::slice::Iter<'a, u32>;
     fn new(indexes: Vec<u32>) -> IdRangeList {
         IdRangeList {
             indexes,
@@ -338,11 +354,11 @@ impl<'a> IdRange<'a> for IdRangeList {
         exponential_search(&self.indexes, &id).is_ok()
     }
 
-    fn iter(self: &'a Self) -> Self::SelfIter {
+    fn iter<'a>(self: &'a Self) -> Self::SelfIter<'a> {
         self.indexes.iter()
     }
 
-    fn intersection(self: &'a Self, other: &'a Self) -> Self::IntersectionIter {
+    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -352,7 +368,7 @@ impl<'a> IdRange<'a> for IdRangeList {
         }
     }
 
-    fn union(self: &'a Self, other: &'a Self) -> Self::UnionIter {
+    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -362,7 +378,10 @@ impl<'a> IdRange<'a> for IdRangeList {
         }
     }
 
-    fn symmetric_difference(self: &'a Self, other: &'a Self) -> Self::SymmetricDifferenceIter {
+    fn symmetric_difference<'a>(
+        self: &'a Self,
+        other: &'a Self,
+    ) -> Self::SymmetricDifferenceIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -372,7 +391,7 @@ impl<'a> IdRange<'a> for IdRangeList {
         }
     }
 
-    fn difference(self: &'a Self, other: &'a Self) -> Self::DifferenceIter {
+    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -462,15 +481,15 @@ struct IdRangeProduct<T> {
 
 struct IdRangeProductIter<'a, T>
 where
-    T: IdRange<'a>,
+    T: IdRange,
 {
     ranges: &'a Vec<T>,
-    iters: Vec<std::iter::Peekable<T::SelfIter>>,
+    iters: Vec<std::iter::Peekable<T::SelfIter<'a>>>,
 }
 
 impl<'a, T> Iterator for IdRangeProductIter<'a, T>
 where
-    T: IdRange<'a> + Clone,
+    T: IdRange + Clone,
 {
     type Item = Vec<u32>;
 
@@ -511,7 +530,7 @@ where
 
 impl<'a, T> IdRangeProduct<T>
 where
-    T: IdRange<'a> + fmt::Display + Clone,
+    T: IdRange + fmt::Display + Clone + fmt::Debug,
 {
     fn intersection(self: &'a Self, other: &'a Self) -> Option<IdRangeProduct<T>> {
         let mut ranges = Vec::<T>::new();
@@ -598,6 +617,9 @@ where
 }
 
 #[derive(Debug, PartialEq, Clone)]
+/// A set of n-dimensional IDs
+///
+/// Represented internally as a list ok products of ranges of ids
 struct IdSet<T> {
     products: Vec<IdRangeProduct<T>>,
 }
@@ -613,7 +635,7 @@ where
 
 struct IdSetIter<'a, T>
 where
-    T: IdRange<'a> + fmt::Display,
+    T: IdRange + fmt::Display,
 {
     product_iter: std::slice::Iter<'a, IdRangeProduct<T>>,
     range_iter: Option<IdRangeProductIter<'a, T>>,
@@ -621,7 +643,7 @@ where
 
 impl<'a, T> Iterator for IdSetIter<'a, T>
 where
-    T: IdRange<'a> + fmt::Display + Clone,
+    T: IdRange + fmt::Display + Clone + fmt::Debug,
 {
     type Item = Vec<u32>;
     fn next(&mut self) -> Option<Self::Item> {
@@ -636,7 +658,7 @@ where
 
 impl<T> IdSet<T>
 where
-    for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &Vec<String>) -> fmt::Result {
         let mut first = true;
@@ -948,6 +970,30 @@ where
         }
     }
 
+    fn symmetric_difference(self: &Self, other: &Self) -> Option<Self> {
+        let intersection = self.intersection(other);
+
+        let Some(intersection) = intersection else {
+            let mut result = self.products.clone();
+            result.extend(other.products.iter().cloned());
+            return Some(IdSet { products: result })
+
+        };
+
+        let mut ns = self.difference(&intersection);
+        let no = other.difference(&intersection);
+
+        match (&mut ns, no) {
+            (Some(ns), Some(no)) => {
+                ns.extend(&no);
+                Some(ns.clone())
+            }
+            (None, Some(no)) => Some(no),
+            (Some(ns), None) => Some(ns.clone()),
+            (_, _) => None,
+        }
+    }
+
     fn new() -> Self {
         IdSet {
             products: Vec::new(),
@@ -993,7 +1039,7 @@ pub struct NodeSet<T> {
 
 struct NodeSetIter<'a, T>
 where
-    T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     dim_iter: std::iter::Peekable<
         std::collections::hash_map::Iter<'a, NodeSetDimensions, Option<IdSet<T>>>,
@@ -1003,7 +1049,7 @@ where
 
 impl<'b, T> NodeSetIter<'b, T>
 where
-    for<'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     fn new(dims: &'b HashMap<NodeSetDimensions, Option<IdSet<T>>>) -> Self {
         let mut it = Self {
@@ -1030,7 +1076,7 @@ where
 
 impl<'b, T> Iterator for NodeSetIter<'b, T>
 where
-    for<'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     type Item = String;
 
@@ -1059,6 +1105,7 @@ where
     }
 }
 
+/// List of names for each dimension of a NodeSet along with an optional suffix
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct NodeSetDimensions {
     dimnames: Vec<String>,
@@ -1084,7 +1131,7 @@ impl NodeSetDimensions {
 
 impl<T> fmt::Display for NodeSet<T>
 where
-    for<'a> T: IdRange<'a> + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut first = true;
@@ -1107,7 +1154,7 @@ where
 
 impl<T> NodeSet<T>
 where
-    for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     fn new() -> Self {
         NodeSet {
@@ -1196,17 +1243,46 @@ where
                             dimnames.insert(dimname.clone(), Some(nset));
                         }
                     }
-                    _ => break,
+                    _ => continue,
                 }
             }
         }
+
+        NodeSet { dimnames: dimnames }
+    }
+
+    fn symmetric_difference(&self, other: &Self) -> Self {
+        let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
+        /*    println!("Start intersect"); */
+        for (dimname, set) in self.dimnames.iter() {
+            /*    println!("{:?}", dimname); */
+            if let Some(oset) = other.dimnames.get(dimname) {
+                /*    println!("Same dims"); */
+                match (set, oset) {
+                    (None, None) => continue,
+                    (Some(set), Some(oset)) => {
+                        if let Some(nset) = set.symmetric_difference(oset) {
+                            /*  println!("Intersect"); */
+                            dimnames.insert(dimname.clone(), Some(nset));
+                        }
+                    }
+                    (Some(set), None) => {
+                        dimnames.insert(dimname.clone(), Some(set.clone()));
+                    }
+                    (None, Some(oset)) => {
+                        dimnames.insert(dimname.clone(), Some(oset.clone()));
+                    }
+                }
+            }
+        }
+
         NodeSet { dimnames: dimnames }
     }
 }
 
 impl<T> std::str::FromStr for NodeSet<T>
 where
-    for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+    T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     type Err = NodeSetParseError;
 
@@ -1246,7 +1322,7 @@ pub(self) mod parsers {
 
     fn term<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
     where
-        for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         delimited(
             multispace0,
@@ -1264,14 +1340,14 @@ pub(self) mod parsers {
 
     pub fn full_expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
     where
-        for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         all_consuming(expr)(i)
     }
 
     pub fn expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
     where
-        for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         let (i, ns) = term(i)?;
         fold_many0(tuple((opt(op), term)), ns, |mut ns, mut t| {
@@ -1282,7 +1358,9 @@ pub(self) mod parsers {
                 Some('!') => {
                     ns = ns.difference(&mut t.1);
                 }
-                Some('^') => unimplemented!(), //TODO
+                Some('^') => {
+                    ns = ns.symmetric_difference(&mut t.1);
+                }
                 Some('&') => {
                     ns = ns.intersection(&mut t.1);
                 }
@@ -1294,7 +1372,7 @@ pub(self) mod parsers {
 
     fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
     where
-        for<'a> T: IdRange<'a> + PartialEq + Clone + fmt::Display + fmt::Debug,
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         map(
             verify(
@@ -1557,32 +1635,30 @@ fn run() -> Result<(), NodeSetParseError> {
                         .multiple(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("count").about("Count nodeset").arg(
+                Arg::with_name("nodeset")
+                    .required(true)
+                    .index(1)
+                    .multiple(true),
+            ),
+        )
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("fold") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n = parsers::full_expr::<IdRangeList>(&nodeset)
-            .map_err(|e| match e {
-                nom::Err::Error(e) => {
-                    NodeSetParseError::new(nom::error::convert_error(&nodeset, e))
-                }
-                _ => panic!("unreachable"),
-            })?
-            .1;
+        let mut n: NodeSet<IdRangeList> = nodeset.parse()?;
         n.fold();
         println!("{}", n);
     } else if let Some(matches) = matches.subcommand_matches("expand") {
         let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n = parsers::full_expr::<IdRangeList>(&nodeset)
-            .map_err(|e| match e {
-                nom::Err::Error(e) => {
-                    NodeSetParseError::new(nom::error::convert_error(&nodeset, e))
-                }
-                _ => panic!("unreachable"),
-            })?
-            .1;
+        let mut n: NodeSet<IdRangeList> = nodeset.parse()?;
         n.fold();
         println!("{}", n.iter().join(" "));
+    } else if let Some(matches) = matches.subcommand_matches("count") {
+        let nodeset = matches.values_of("nodeset").unwrap().join(" ");
+        let nodeset: NodeSet<IdRangeList> = nodeset.parse()?;
+        println!("{}", nodeset.len());
     }
     Ok(())
 }
