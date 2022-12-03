@@ -1,7 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
 use clap::{App, Arg, SubCommand};
-use itertools;
 use itertools::Itertools;
 use std::collections::btree_set;
 use std::collections::{BTreeSet, HashMap};
@@ -19,7 +18,7 @@ impl PartialEq for IdRangeList {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IdRangeTree {
     indexes: BTreeSet<u32>,
 }
@@ -91,18 +90,23 @@ where
             let first_a = self.a.first();
             let first_b = self.b.first();
 
-            if first_a == first_b {
-                self.a = &self.a[1..];
-                self.b = &self.b[1..];
-                return first_a;
-            } else if first_a < first_b {
-                self.a = &self.a[exponential_search_idx(self.a, &first_b.unwrap())..];
-            } else {
-                self.b = &self.b[exponential_search_idx(self.b, &first_a.unwrap())..];
+            match first_a.cmp(&first_b) {
+                std::cmp::Ordering::Less => {
+                    self.a = &self.a[exponential_search_idx(self.a, first_b.unwrap())..];
+                }
+
+                std::cmp::Ordering::Equal => {
+                    self.a = &self.a[1..];
+                    self.b = &self.b[1..];
+                    return first_a;
+                }
+                std::cmp::Ordering::Greater => {
+                    self.b = &self.b[exponential_search_idx(self.b, first_a.unwrap())..];
+                }
             }
         }
 
-        return None;
+        None
     }
 }
 
@@ -116,17 +120,17 @@ where
         let first_a = self.a.first();
         let first_b = self.b.first();
 
-        if first_a != None && (first_a <= first_b || first_b == None) {
+        if first_a.is_some() && (first_a <= first_b || first_b.is_none()) {
             self.a = &self.a[1..];
             return first_a;
         }
 
-        if first_b != None {
+        if first_b.is_some() {
             self.b = &self.b[1..];
             return first_b;
         }
 
-        return None;
+        None
     }
 }
 
@@ -141,25 +145,23 @@ where
         let mut first_b = self.b.first();
 
         while first_a == first_b {
-            if first_a == None {
-                return None;
-            }
+            first_a?;
             self.a = &self.a[1..];
             self.b = &self.b[1..];
             first_a = self.a.first();
             first_b = self.b.first();
         }
 
-        if first_a != None && (first_a < first_b || first_b == None) {
+        if first_a.is_some() && (first_a < first_b || first_b.is_none()) {
             self.a = &self.a[1..];
             return first_a;
         }
         self.b = &self.b[1..];
-        return first_b;
+        first_b
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IdRangeStep {
     start: u32,
     end: u32,
@@ -185,39 +187,32 @@ pub trait IdRange {
 
     fn new(indexes: Vec<u32>) -> Self;
     fn new_empty() -> Self;
-    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a>;
-    fn symmetric_difference<'a>(
-        self: &'a Self,
-        other: &'a Self,
-    ) -> Self::SymmetricDifferenceIter<'a>;
-    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a>;
-    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a>;
-    fn iter<'a>(self: &'a Self) -> Self::SelfIter<'a>;
-    fn contains(self: &Self, id: u32) -> bool;
-    fn is_empty(self: &Self) -> bool;
-    fn push(self: &mut Self, other: &Self);
-    fn push_idrs(self: &mut Self, other: &IdRangeStep);
-    fn len(self: &Self) -> usize;
+    fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a>;
+    fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a>;
+    fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a>;
+    fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a>;
+    fn iter(&self) -> Self::SelfIter<'_>;
+    fn contains(&self, id: u32) -> bool;
+    fn is_empty(&self) -> bool;
+    fn push(&mut self, other: &Self);
+    fn push_idrs(&mut self, other: &IdRangeStep);
+    fn len(&self) -> usize;
     fn sort(&mut self);
     fn force_sorted(self) -> Self;
 }
 
 impl IdRange for IdRangeTree {
+    type SelfIter<'a> = btree_set::Iter<'a, u32>;
     type DifferenceIter<'a> = btree_set::Difference<'a, u32>;
     type SymmetricDifferenceIter<'a> = btree_set::SymmetricDifference<'a, u32>;
     type IntersectionIter<'a> = btree_set::Intersection<'a, u32>;
     type UnionIter<'a> = btree_set::Union<'a, u32>;
-    type SelfIter<'a> = btree_set::Iter<'a, u32>;
 
-    fn len(self: &Self) -> usize {
-        self.indexes.len()
+    fn new(indexes: Vec<u32>) -> IdRangeTree {
+        let mut bt = BTreeSet::new();
+        bt.extend(&indexes);
+        IdRangeTree { indexes: bt }
     }
-
-    fn push(self: &mut Self, other: &Self) {
-        self.indexes.extend(&other.indexes);
-    }
-
-    fn sort(self: &mut Self) {}
 
     fn new_empty() -> Self {
         IdRangeTree {
@@ -225,41 +220,42 @@ impl IdRange for IdRangeTree {
         }
     }
 
-    fn new(indexes: Vec<u32>) -> IdRangeTree {
-        let mut bt = BTreeSet::new();
-        bt.extend(&indexes);
-        IdRangeTree { indexes: bt }
+    fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a> {
+        self.indexes.difference(&other.indexes)
     }
-    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a> {
-        return self.indexes.difference(&other.indexes);
+
+    fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a> {
+        self.indexes.symmetric_difference(&other.indexes)
     }
-    fn symmetric_difference<'a>(
-        self: &'a Self,
-        other: &'a Self,
-    ) -> Self::SymmetricDifferenceIter<'a> {
-        return self.indexes.symmetric_difference(&other.indexes);
+
+    fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a> {
+        self.indexes.intersection(&other.indexes)
     }
-    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a> {
-        return self.indexes.intersection(&other.indexes);
+    fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a> {
+        self.indexes.union(&other.indexes)
     }
-    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a> {
-        return self.indexes.union(&other.indexes);
+    fn iter(&self) -> Self::SelfIter<'_> {
+        self.indexes.iter()
     }
-    fn contains(self: &Self, id: u32) -> bool {
-        return self.indexes.contains(&id);
+    fn contains(&self, id: u32) -> bool {
+        self.indexes.contains(&id)
     }
-    fn is_empty(self: &Self) -> bool {
-        return self.indexes.is_empty();
+    fn is_empty(&self) -> bool {
+        self.indexes.is_empty()
     }
-    fn iter<'b>(self: &'b Self) -> Self::SelfIter<'b> {
-        return self.indexes.iter();
+    fn push(&mut self, other: &Self) {
+        self.indexes.extend(&other.indexes);
     }
-    fn force_sorted(self) -> Self {
-        self
-    }
-    fn push_idrs(self: &mut Self, idrs: &IdRangeStep) {
+    fn push_idrs(&mut self, idrs: &IdRangeStep) {
         self.indexes
             .extend((idrs.start..idrs.end + 1).step_by(idrs.step))
+    }
+    fn len(&self) -> usize {
+        self.indexes.len()
+    }
+    fn sort(&mut self) {}
+    fn force_sorted(self) -> Self {
+        self
     }
 }
 
@@ -312,7 +308,7 @@ impl IdRange for IdRangeList {
             sorted: true,
         }
     }
-    fn push_idrs(self: &mut Self, idrs: &IdRangeStep) {
+    fn push_idrs(&mut self, idrs: &IdRangeStep) {
         self.indexes
             .extend((idrs.start..idrs.end + 1).step_by(idrs.step));
         let sorted = self.sorted && idrs.start > *self.indexes.last().unwrap_or(&0);
@@ -322,11 +318,11 @@ impl IdRange for IdRangeList {
         }
     }
 
-    fn len(self: &Self) -> usize {
+    fn len(&self) -> usize {
         self.indexes.len()
     }
 
-    fn sort(self: &mut Self) {
+    fn sort(&mut self) {
         if !self.sorted {
             /* println!("sort range"); */
             self.indexes.sort_unstable();
@@ -335,7 +331,7 @@ impl IdRange for IdRangeList {
         }
     }
 
-    fn push(self: &mut Self, other: &Self) {
+    fn push(&mut self, other: &Self) {
         /* println!("before: {}", self.sorted); */
         let sorted =
             self.sorted && other.sorted && other.indexes[0] > *self.indexes.last().unwrap_or(&0);
@@ -348,17 +344,17 @@ impl IdRange for IdRangeList {
         /* println!("after: {}", self.sorted); */
     }
 
-    fn contains(self: &Self, id: u32) -> bool {
+    fn contains(&self, id: u32) -> bool {
         assert!(self.sorted);
 
         exponential_search(&self.indexes, &id).is_ok()
     }
 
-    fn iter<'a>(self: &'a Self) -> Self::SelfIter<'a> {
+    fn iter(&self) -> Self::SelfIter<'_> {
         self.indexes.iter()
     }
 
-    fn intersection<'a>(self: &'a Self, other: &'a Self) -> Self::IntersectionIter<'a> {
+    fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -368,7 +364,7 @@ impl IdRange for IdRangeList {
         }
     }
 
-    fn union<'a>(self: &'a Self, other: &'a Self) -> Self::UnionIter<'a> {
+    fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -378,10 +374,7 @@ impl IdRange for IdRangeList {
         }
     }
 
-    fn symmetric_difference<'a>(
-        self: &'a Self,
-        other: &'a Self,
-    ) -> Self::SymmetricDifferenceIter<'a> {
+    fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -391,7 +384,7 @@ impl IdRange for IdRangeList {
         }
     }
 
-    fn difference<'a>(self: &'a Self, other: &'a Self) -> Self::DifferenceIter<'a> {
+    fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a> {
         assert!(self.sorted);
         assert!(other.sorted);
 
@@ -402,13 +395,13 @@ impl IdRange for IdRangeList {
     }
 
     fn is_empty(&self) -> bool {
-        return self.indexes.is_empty();
+        self.indexes.is_empty()
     }
 
     fn force_sorted(mut self) -> Self {
         let s = &mut self;
         s.sorted = true;
-        return self;
+        self
     }
 }
 
@@ -532,12 +525,11 @@ impl<'a, T> IdRangeProduct<T>
 where
     T: IdRange + fmt::Display + Clone + fmt::Debug,
 {
-    fn intersection(self: &'a Self, other: &'a Self) -> Option<IdRangeProduct<T>> {
+    fn intersection(&'a self, other: &'a Self) -> Option<IdRangeProduct<T>> {
         let mut ranges = Vec::<T>::new();
 
         for (sidr, oidr) in self.ranges.iter().zip(other.ranges.iter()) {
-            let rng =
-                T::new(sidr.intersection(&oidr).cloned().collect::<Vec<u32>>()).force_sorted();
+            let rng = T::new(sidr.intersection(oidr).cloned().collect::<Vec<u32>>()).force_sorted();
             if rng.is_empty() {
                 return None;
             }
@@ -552,7 +544,7 @@ where
 
         let mut next_ranges = self.ranges.clone();
         for (i, (sidr, oidr)) in self.ranges.iter().zip(other.ranges.iter()).enumerate() {
-            let rng = T::new(sidr.difference(&oidr).cloned().collect::<Vec<u32>>()).force_sorted();
+            let rng = T::new(sidr.difference(oidr).cloned().collect::<Vec<u32>>()).force_sorted();
             if rng.is_empty() {
                 continue;
             }
@@ -565,37 +557,38 @@ where
             products.push(IdRangeProduct { ranges });
 
             next_ranges[i] =
-                T::new(oidr.intersection(&sidr).cloned().collect::<Vec<u32>>()).force_sorted();
+                T::new(oidr.intersection(sidr).cloned().collect::<Vec<u32>>()).force_sorted();
         }
+
         products
     }
 
-    fn prepare_sort(self: &mut Self) {
+    fn prepare_sort(&mut self) {
         for r in &mut self.ranges {
             r.sort();
         }
     }
 
-    fn iter(self: &Self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<T> {
         self.ranges.iter()
     }
 
-    fn iter_products(self: &'a Self) -> IdRangeProductIter<'a, T> {
+    fn iter_products(&'a self) -> IdRangeProductIter<'a, T> {
         IdRangeProductIter {
             ranges: &self.ranges,
             iters: self.ranges.iter().map(|r| r.iter().peekable()).collect(),
         }
     }
 
-    fn len(self: &Self) -> usize {
+    fn len(&self) -> usize {
         self.ranges.iter().map(|r| r.len()).product()
     }
 
-    fn num_axis(self: &Self) -> usize {
+    fn num_axis(&self) -> usize {
         self.ranges.len()
     }
 
-    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &Vec<String>) -> fmt::Result {
+    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &[String]) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -660,7 +653,7 @@ impl<T> IdSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &Vec<String>) -> fmt::Result {
+    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &[String]) -> fmt::Result {
         let mut first = true;
         for p in &self.products {
             if !first {
@@ -676,11 +669,11 @@ where
         self.products.extend(other.products.iter().cloned());
     }
 
-    fn len(self: &Self) -> usize {
+    fn len(&self) -> usize {
         self.products.iter().map(|x| x.len()).sum()
     }
 
-    fn sort(self: &mut Self, skip: usize) {
+    fn sort(&mut self, skip: usize) {
         self.products[skip..].sort_unstable_by(|a, b| {
             for (ai, bi) in a.iter().zip(b.iter()) {
                 let ai0 = ai.iter().next();
@@ -692,10 +685,10 @@ where
                     _ => continue,
                 }
             }
-            return std::cmp::Ordering::Equal;
+            std::cmp::Ordering::Equal
         });
     }
-    fn full_split(self: &mut Self) {
+    fn full_split(&mut self) {
         /*  println!("full split"); */
         let mut split_products = vec![];
         for p in &self.products {
@@ -735,7 +728,7 @@ where
         /* println!("sorted"); */
     }
 
-    fn minimal_split(self: &mut Self) {
+    fn minimal_split(&mut self) {
         /* println!("minimal split"); */
         self.sort(0);
         /* println!("sorted"); */
@@ -848,7 +841,7 @@ where
         }
     }
 
-    fn merge(self: &mut Self) {
+    fn merge(&mut self) {
         /* println!("merge"); */
         let mut dellst = vec![false; self.products.len()];
 
@@ -932,16 +925,12 @@ where
         self
     }
 
-    fn difference(self: &Self, other: &Self) -> Option<Self> {
+    fn difference(&self, other: &Self) -> Option<Self> {
         let mut products = Vec::<IdRangeProduct<T>>::new();
         for sidpr in self.products.iter() {
             let mut nidpr = vec![sidpr.clone()];
             for oidpr in other.products.iter() {
-                nidpr = nidpr
-                    .iter()
-                    .map(|pr| pr.difference(oidpr))
-                    .flatten()
-                    .collect();
+                nidpr = nidpr.iter().flat_map(|pr| pr.difference(oidpr)).collect();
             }
             products.extend(nidpr)
         }
@@ -952,7 +941,7 @@ where
         }
     }
 
-    fn intersection(self: &Self, other: &Self) -> Option<Self> {
+    fn intersection(&self, other: &Self) -> Option<Self> {
         let mut products = Vec::<IdRangeProduct<T>>::new();
         for (sidpr, oidpr) in self
             .products
@@ -970,7 +959,7 @@ where
         }
     }
 
-    fn symmetric_difference(self: &Self, other: &Self) -> Option<Self> {
+    fn symmetric_difference(&self, other: &Self) -> Option<Self> {
         let intersection = self.intersection(other);
 
         let Some(intersection) = intersection else {
@@ -1000,7 +989,7 @@ where
         }
     }
 
-    fn iter<'b>(&'b self) -> IdSetIter<'b, T> {
+    fn iter(&self) -> IdSetIter<'_, T> {
         let mut product_iter = self.products.iter();
         let range_iter = product_iter.next().map(|p| p.iter_products());
         IdSetIter {
@@ -1169,7 +1158,7 @@ where
             .sum()
     }
 
-    fn iter<'a>(&'a self) -> NodeSetIter<'a, T> {
+    fn iter(&self) -> NodeSetIter<'_, T> {
         /* println!("{:?}", self.dimnames); */
         NodeSetIter::new(&self.dimnames)
     }
@@ -1223,7 +1212,7 @@ where
                 dimnames.insert(dimname.clone(), set.clone());
             }
         }
-        NodeSet { dimnames: dimnames }
+        NodeSet { dimnames }
     }
 
     fn intersection(&self, other: &Self) -> Self {
@@ -1248,7 +1237,7 @@ where
             }
         }
 
-        NodeSet { dimnames: dimnames }
+        NodeSet { dimnames }
     }
 
     fn symmetric_difference(&self, other: &Self) -> Self {
@@ -1276,7 +1265,7 @@ where
             }
         }
 
-        NodeSet { dimnames: dimnames }
+        NodeSet { dimnames }
     }
 }
 
@@ -1290,7 +1279,7 @@ where
         parsers::full_expr::<T>(s)
             .map(|r| r.1)
             .map_err(|e| match e {
-                nom::Err::Error(e) => NodeSetParseError::new(nom::error::convert_error(&s, e)),
+                nom::Err::Error(e) => NodeSetParseError::new(nom::error::convert_error(s, e)),
                 _ => panic!("unreachable"),
             })
     }
@@ -1350,19 +1339,19 @@ pub(self) mod parsers {
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         let (i, ns) = term(i)?;
-        fold_many0(tuple((opt(op), term)), ns, |mut ns, mut t| {
+        fold_many0(tuple((opt(op), term)), ns, |mut ns, t| {
             match t.0 {
                 Some(',') | Some('+') | None => {
                     ns.extend(&t.1);
                 }
                 Some('!') => {
-                    ns = ns.difference(&mut t.1);
+                    ns = ns.difference(&t.1);
                 }
                 Some('^') => {
-                    ns = ns.symmetric_difference(&mut t.1);
+                    ns = ns.symmetric_difference(&t.1);
                 }
                 Some('&') => {
-                    ns = ns.intersection(&mut t.1);
+                    ns = ns.intersection(&t.1);
                 }
                 _ => unreachable!(),
             }
@@ -1444,6 +1433,7 @@ pub(self) mod parsers {
         )(i)
     }
 
+    #[allow(clippy::type_complexity)]
     fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, VerboseError<&str>> {
         map_res(pair(digit1,
                          opt(tuple((
@@ -1587,7 +1577,6 @@ pub(self) mod parsers {
     }
 }
 
-use nom;
 use nom::error::VerboseError;
 
 impl From<nom::Err<VerboseError<&str>>> for NodeSetParseError {
@@ -2020,10 +2009,10 @@ mod tests {
 
     #[test]
     fn test_exponential_search() {
-        assert_eq!(exponential_search(&vec![], &0), Err(0));
-        assert_eq!(exponential_search(&vec![1, 2, 4, 7], &4), Ok(2));
-        assert_eq!(exponential_search(&vec![1, 2, 4, 7], &0), Err(0));
-        assert_eq!(exponential_search(&vec![1, 2, 4, 7], &8), Err(4));
+        assert_eq!(exponential_search(&[], &0), Err(0));
+        assert_eq!(exponential_search(&[1, 2, 4, 7], &4), Ok(2));
+        assert_eq!(exponential_search(&[1, 2, 4, 7], &0), Err(0));
+        assert_eq!(exponential_search(&[1, 2, 4, 7], &8), Err(4));
     }
 
     fn validate_rangelist_union_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
