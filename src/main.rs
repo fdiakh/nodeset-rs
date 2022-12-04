@@ -733,7 +733,7 @@ where
         self.sort(0);
         /* println!("sorted"); */
         let mut idx1 = 0;
-        while idx1 < self.products.len() - 1 {
+        while idx1 + 1 < self.products.len() {
             let mut cur_len = self.products.len();
             let mut idx2 = idx1 + 1;
             while idx2 < cur_len {
@@ -849,7 +849,7 @@ where
             /* println!("loop"); */
             let mut update = false;
             let mut idx1 = 0;
-            while idx1 < self.products.len() - 1 {
+            while idx1 + 1 < self.products.len() {
                 if dellst[idx1] {
                     idx1 += 1;
                     continue;
