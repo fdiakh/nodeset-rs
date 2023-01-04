@@ -1,53 +1,34 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
 use clap::{App, Arg, SubCommand};
-use ns::{NodeSet, NodeSetParseError, IdRangeList};
+use eyre::{Context, Result};
 use itertools::Itertools;
+use ns::{IdRangeList, NodeSet};
+use std::io;
+use std::io::Read;
 
-
-fn main() {
-    if let Err(e) = run() {
-        println!("Error: {}", e)
-    }
-}
-fn run() -> Result<(), NodeSetParseError> {
+fn main() -> Result<()> {
     let matches = App::new("ns")
         .subcommand(
-            SubCommand::with_name("fold")
-                .about("Fold nodeset")
-                .arg(
-                    Arg::with_name("intersect")
-                        .short("i")
-                        .multiple(true)
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("nodeset")
-                        .required(true)
-                        .index(1)
-                        .multiple(true),
-                ),
+            SubCommand::with_name("fold").about("Fold nodeset").arg(
+                Arg::with_name("nodeset")
+                    .required(false)
+                    .index(1)
+                    .multiple(true),
+            ),
         )
         .subcommand(
-            SubCommand::with_name("expand")
-                .about("Expand nodeset")
-                .arg(
-                    Arg::with_name("intersect")
-                        .short("i")
-                        .multiple(true)
-                        .takes_value(true),
-                )
-                .arg(
-                    Arg::with_name("nodeset")
-                        .required(true)
-                        .index(1)
-                        .multiple(true),
-                ),
+            SubCommand::with_name("expand").about("Expand nodeset").arg(
+                Arg::with_name("nodeset")
+                    .required(false)
+                    .index(1)
+                    .multiple(true),
+            ),
         )
         .subcommand(
             SubCommand::with_name("count").about("Count nodeset").arg(
                 Arg::with_name("nodeset")
-                    .required(true)
+                    .required(false)
                     .index(1)
                     .multiple(true),
             ),
@@ -55,23 +36,36 @@ fn run() -> Result<(), NodeSetParseError> {
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("fold") {
-        let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n: NodeSet<IdRangeList> = nodeset.parse()?;
-        n.fold();
-        println!("{}", n);
+        println!("{}", nodeset_argument(matches)?);
     } else if let Some(matches) = matches.subcommand_matches("expand") {
-        let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let mut n: NodeSet<IdRangeList> = nodeset.parse()?;
-        n.fold();
-        println!("{}", n.iter().join(" "));
+        println!("{}", nodeset_argument(matches)?.iter().join(" "));
     } else if let Some(matches) = matches.subcommand_matches("count") {
-        let nodeset = matches.values_of("nodeset").unwrap().join(" ");
-        let nodeset: NodeSet<IdRangeList> = nodeset.parse()?;
-        println!("{}", nodeset.len());
+        println!("{}", nodeset_argument(matches)?.len());
     }
     Ok(())
 }
 
+fn nodeset_argument(matches: &clap::ArgMatches) -> Result<NodeSet<IdRangeList>> {
+    let mut nodeset: NodeSet<IdRangeList> =
+        match matches.values_of("nodeset").map(|mut v| v.join(" ")) {
+            Some(s) => s,
+            None => read_stdin()?,
+        }
+        .parse()
+        .context("failed to parse nodeset")?;
+
+    nodeset.fold();
+    Ok(nodeset)
+}
+
+fn read_stdin() -> Result<String> {
+    let mut s = String::new();
+    io::stdin()
+        .lock()
+        .read_to_string(&mut s)
+        .context("failed to read standard input")?;
+    Ok(s)
+}
 #[cfg(all(feature = "unstable", test))]
 mod benchs {
     extern crate test;

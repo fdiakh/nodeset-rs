@@ -3,6 +3,7 @@ use crate::idrange::IdRange;
 use crate::{IdSet, IdSetIter};
 use itertools::Itertools;
 use std::collections::HashMap;
+use std::error::Error;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -280,20 +281,18 @@ where
         Ok(())
     }
 }
-
+#[derive(Debug, Clone)]
 pub struct NodeSetParseError {
     err: String,
+}
+
+impl Error for NodeSetParseError {
+
 }
 
 impl NodeSetParseError {
     fn new(err: String) -> NodeSetParseError {
         NodeSetParseError { err }
-    }
-}
-
-impl fmt::Debug for NodeSetParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.err)
     }
 }
 
