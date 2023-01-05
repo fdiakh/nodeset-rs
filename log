@@ -1,0 +1,10 @@
+Timing in a Vec for 1000 elems
+Difference count 0
+Difference 999
+Intersection count 1000
+Intersection count 1
+Duration is 130.648µs
+Timing in a Set for 1000 elems
+Difference count 0
+Intersection count 1000
+Duration is 104.838µs
