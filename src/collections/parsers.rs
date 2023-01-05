@@ -5,7 +5,7 @@ use nom::{
     character::complete::{char, digit1, multispace0, one_of},
     combinator::{all_consuming, map, map_res, opt, verify},
     error::VerboseError,
-    multi::{fold_many0, many0, separated_nonempty_list},
+    multi::{fold_many0, many0, separated_list1},
     sequence::{delimited, pair, tuple},
     IResult,
 };
@@ -35,9 +35,9 @@ pub fn op(i: &str) -> IResult<&str, char, VerboseError<&str>> {
     delimited(multispace0, one_of("+,&!^"), multispace0)(i)
 }
 
-fn emptyset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>> {
+/* fn emptyset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>> {
     map(multispace0, |_| NodeSet::default())(i)
-}
+} */
 
 pub fn full_expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
 where
@@ -50,25 +50,28 @@ pub fn expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    let (i, ns) = alt((term, emptyset))(i)?;
-    fold_many0(tuple((opt(op), term)), ns, |mut ns, t| {
-        match t.0 {
-            Some(',') | Some('+') | None => {
-                ns.extend(&t.1);
+    fold_many0(
+        tuple((opt(op), term)),
+        NodeSet::<T>::default,
+        |mut ns, t| {
+            match t.0 {
+                Some(',') | Some('+') | None => {
+                    ns.extend(&t.1);
+                }
+                Some('!') => {
+                    ns = ns.difference(&t.1);
+                }
+                Some('^') => {
+                    ns = ns.symmetric_difference(&t.1);
+                }
+                Some('&') => {
+                    ns = ns.intersection(&t.1);
+                }
+                _ => unreachable!(),
             }
-            Some('!') => {
-                ns = ns.difference(&t.1);
-            }
-            Some('^') => {
-                ns = ns.symmetric_difference(&t.1);
-            }
-            Some('&') => {
-                ns = ns.intersection(&t.1);
-            }
-            _ => unreachable!(),
-        }
-        ns
-    })(i)
+            ns
+        },
+    )(i)
 }
 
 fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
@@ -126,7 +129,7 @@ fn node_component(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
 fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>, VerboseError<&str>> {
     delimited(
         char('['),
-        separated_nonempty_list(tag(","), id_range_step),
+        separated_list1(tag(","), id_range_step),
         char(']'),
     )(i)
 }

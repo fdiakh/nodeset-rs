@@ -12,7 +12,7 @@ hashers = "1.0.1"
 rand = "0"
 itertools = "0"
 clap = {version = "4.0.32", features = ["derive"]}
-nom = "5.1"
+nom = "7.1.2"
 eyre = "0.6.8"
 [features]
 unstable = []

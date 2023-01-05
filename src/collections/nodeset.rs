@@ -229,7 +229,7 @@ where
         parsers::full_expr::<T>(s)
             .map(|r| r.1)
             .map_err(|e| match e {
-                nom::Err::Error(e) => NodeSetParseError::new(nom::error::convert_error(s, e)),
+                nom::Err::Error(e) => NodeSetParseError::from(nom::Err::Error(e)),
                 _ => panic!("unreachable"),
             })
     }
@@ -286,9 +286,7 @@ pub struct NodeSetParseError {
     err: String,
 }
 
-impl Error for NodeSetParseError {
-
-}
+impl Error for NodeSetParseError {}
 
 impl NodeSetParseError {
     fn new(err: String) -> NodeSetParseError {
@@ -298,7 +296,7 @@ impl NodeSetParseError {
 
 impl fmt::Display for NodeSetParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.err)
+        write!(f, "unable to parse: '{}'", self.err)
     }
 }
 
@@ -306,7 +304,12 @@ use nom::error::VerboseError;
 
 impl From<nom::Err<VerboseError<&str>>> for NodeSetParseError {
     fn from(error: nom::Err<VerboseError<&str>>) -> Self {
-        NodeSetParseError::new(format!("{:?}", error))
+        match &error {
+            // This should not happen, as we are using complete parsers
+            nom::Err::Incomplete(_) => unreachable!(),
+            nom::Err::Error(e) => NodeSetParseError::new(e.errors.first().unwrap().0.to_string()),
+            nom::Err::Failure(e) => NodeSetParseError::new(e.errors.first().unwrap().0.to_string()),
+        }
     }
 }
 
