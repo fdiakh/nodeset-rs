@@ -1,58 +1,68 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
-use clap::{App, Arg, SubCommand};
+use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
 use ns::{IdRangeList, NodeSet};
 use std::io;
 use std::io::Read;
 
-fn main() -> Result<()> {
-    let matches = App::new("ns")
-        .subcommand(
-            SubCommand::with_name("fold").about("Fold nodeset").arg(
-                Arg::with_name("nodeset")
-                    .required(false)
-                    .index(1)
-                    .multiple(true),
-            ),
-        )
-        .subcommand(
-            SubCommand::with_name("expand").about("Expand nodeset").arg(
-                Arg::with_name("nodeset")
-                    .required(false)
-                    .index(1)
-                    .multiple(true),
-            ),
-        )
-        .subcommand(
-            SubCommand::with_name("count").about("Count nodeset").arg(
-                Arg::with_name("nodeset")
-                    .required(false)
-                    .index(1)
-                    .multiple(true),
-            ),
-        )
-        .get_matches();
+#[derive(Parser)]
+#[command(about = "Operations on set of nodes")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
 
-    if let Some(matches) = matches.subcommand_matches("fold") {
-        println!("{}", nodeset_argument(matches)?);
-    } else if let Some(matches) = matches.subcommand_matches("expand") {
-        println!("{}", nodeset_argument(matches)?.iter().join(" "));
-    } else if let Some(matches) = matches.subcommand_matches("count") {
-        println!("{}", nodeset_argument(matches)?.len());
+#[derive(Subcommand)]
+enum Commands {
+    /// Fold nodeset(s) (or separate nodes) into one nodeset
+    Fold {
+        /// Nodeset(s) to fold
+        nodeset: Option<Vec<String>>,
+    },
+    /// Expand nodeset(s) into separate nodes
+    Expand {
+        /// Nodeset(s) to expand
+        nodeset: Option<Vec<String>>,
+        /// Separator between nodes
+        #[arg(short, default_value = " ")]
+        separator: String,
+    },
+    /// Count nodeset(s)
+    Count {
+        /// Nodeset(s) to count
+        nodeset: Option<Vec<String>>,
+    },
+}
+
+fn main() -> Result<()> {
+    let args = Cli::parse();
+    match args.command {
+        Commands::Fold { nodeset } => {
+            let nodeset = nodeset_argument(nodeset)?;
+            println!("{}", nodeset);
+        }
+        Commands::Expand { nodeset, separator } => {
+            let nodeset = nodeset_argument(nodeset)?;
+            println!("{}", nodeset.iter().join(&separator));
+        }
+        Commands::Count { nodeset } => {
+            let nodeset = nodeset_argument(nodeset)?;
+            println!("{}", nodeset.len());
+        }
     }
+
     Ok(())
 }
 
-fn nodeset_argument(matches: &clap::ArgMatches) -> Result<NodeSet<IdRangeList>> {
-    let mut nodeset: NodeSet<IdRangeList> =
-        match matches.values_of("nodeset").map(|mut v| v.join(" ")) {
-            Some(s) => s,
-            None => read_stdin()?,
-        }
-        .parse()
-        .context("failed to parse nodeset")?;
+fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet<IdRangeList>> {
+    let mut nodeset: NodeSet<IdRangeList> = match ns {
+        Some(v) => v.join(" "),
+        None => read_stdin()?,
+    }
+    .parse()
+    .context("failed to parse nodeset")?;
 
     nodeset.fold();
     Ok(nodeset)
