@@ -1,4 +1,4 @@
-use super::{IdRange, IdRangeStep};
+use super::{IdRange, IdRangeStep, SortedIterator};
 use itertools::Itertools;
 use std::fmt::{self, Debug, Display};
 
@@ -35,6 +35,11 @@ pub struct VecSymDifference<'a, T> {
 }
 
 impl IdRangeList {}
+
+impl SortedIterator for VecUnion<'_, u32> {}
+impl SortedIterator for VecIntersection<'_, u32> {}
+impl SortedIterator for VecDifference<'_, u32> {}
+impl SortedIterator for VecSymDifference<'_, u32> {}
 
 impl<'a, T> Iterator for VecDifference<'a, T>
 where
@@ -183,29 +188,51 @@ where
     }
 }
 
+impl From<u32> for IdRangeList {
+    fn from(index: u32) -> IdRangeList {
+        IdRangeList {
+            indexes: vec![index],
+            sorted: true,
+        }
+    }
+}
+
+impl From<Vec<u32>> for IdRangeList {
+    fn from(indexes: Vec<u32>) -> IdRangeList {
+        let mut r = IdRangeList {
+            indexes,
+            sorted: false,
+        };
+        r.sort();
+        r
+    }
+}
+
 impl IdRange for IdRangeList {
     type DifferenceIter<'a> = VecDifference<'a, u32>;
     type IntersectionIter<'a> = VecIntersection<'a, u32>;
     type UnionIter<'a> = VecUnion<'a, u32>;
     type SymmetricDifferenceIter<'a> = VecSymDifference<'a, u32>;
     type SelfIter<'a> = std::slice::Iter<'a, u32>;
-    fn new(indexes: Vec<u32>) -> IdRangeList {
+    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32>) -> IdRangeList {
         IdRangeList {
-            indexes,
-            sorted: false,
+            indexes: indexes.into_iter().cloned().collect(),
+            sorted: true,
         }
     }
-    fn new_empty() -> Self {
+
+    fn new() -> Self {
         IdRangeList {
             indexes: vec![],
             sorted: true,
         }
     }
     fn push_idrs(&mut self, idrs: &IdRangeStep) {
+        let sorted_after = self.sorted && idrs.start > *self.indexes.last().unwrap_or(&0);
+
         self.indexes
             .extend((idrs.start..idrs.end + 1).step_by(idrs.step));
-        let sorted = self.sorted && idrs.start > *self.indexes.last().unwrap_or(&0);
-        if self.sorted && !sorted {
+        if self.sorted && !sorted_after {
             self.sorted = false;
             self.sort();
         }
@@ -291,11 +318,11 @@ impl IdRange for IdRangeList {
         self.indexes.is_empty()
     }
 
-    fn force_sorted(mut self) -> Self {
-        let s = &mut self;
-        s.sorted = true;
+    fn lazy(mut self) -> Self {
+        self.sorted = false;
         self
     }
+
 }
 
 impl Display for IdRangeList {

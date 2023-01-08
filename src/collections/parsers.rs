@@ -93,10 +93,11 @@ where
             let mut dims = NodeSetDimensions::new();
             let mut ranges = vec![];
             for (dim, rng) in r.0.into_iter() {
-                let mut range = T::new_empty();
+                let mut range = T::new().lazy();
                 for r in rng {
                     range.push_idrs(&r)
                 }
+                range.sort();
                 ranges.push(range);
                 dims.push(dim, false);
             }
