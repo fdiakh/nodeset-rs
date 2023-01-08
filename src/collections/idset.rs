@@ -2,6 +2,8 @@ use crate::idrange::IdRange;
 use itertools::Itertools;
 use std::fmt::{self, Debug, Display};
 
+
+/// A product of IdRanges over multiple dimensions
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct IdRangeProduct<T> {
     pub(crate) ranges: Vec<T>,
@@ -64,7 +66,7 @@ where
         let mut ranges = Vec::<T>::new();
 
         for (sidr, oidr) in self.ranges.iter().zip(other.ranges.iter()) {
-            let rng = T::new(sidr.intersection(oidr).cloned().collect::<Vec<u32>>()).force_sorted();
+            let rng = T::from_sorted(sidr.intersection(oidr));
             if rng.is_empty() {
                 return None;
             }
@@ -79,7 +81,7 @@ where
 
         let mut next_ranges = self.ranges.clone();
         for (i, (sidr, oidr)) in self.ranges.iter().zip(other.ranges.iter()).enumerate() {
-            let rng = T::new(sidr.difference(oidr).cloned().collect::<Vec<u32>>()).force_sorted();
+            let rng = T::from_sorted(sidr.difference(oidr));
             if rng.is_empty() {
                 continue;
             }
@@ -92,7 +94,7 @@ where
             products.push(IdRangeProduct { ranges });
 
             next_ranges[i] =
-                T::new(oidr.intersection(sidr).cloned().collect::<Vec<u32>>()).force_sorted();
+                T::from_sorted(oidr.intersection(sidr));
         }
 
         products
@@ -239,7 +241,7 @@ where
                     first_range = false;
                     for n in rng.iter() {
                         split_products.push(IdRangeProduct {
-                            ranges: vec![T::new(vec![*n]).force_sorted()],
+                            ranges: vec![T::from(*n)],
                         });
                     }
                 } else {
@@ -254,7 +256,7 @@ where
                         for sp in
                             split_products[start + i * count..start + (i + 1) * count].iter_mut()
                         {
-                            sp.ranges.push(T::new(vec![*r]).force_sorted());
+                            sp.ranges.push(T::from(*r));
                         }
                     }
                 }
@@ -321,10 +323,10 @@ where
                         split = true;
                         inter_p
                             .ranges
-                            .push(T::new(r1.intersection(r2).cloned().collect()).force_sorted());
+                            .push(T::from_sorted(r1.intersection(r2)));
                         if r1.difference(r2).next().is_some() {
                             let diff =
-                                vec![T::new(r1.difference(r2).cloned().collect()).force_sorted()];
+                                vec![T::from_sorted(r1.difference(r2))];
                             //println!("diff1 {:?}", diff);
                             let new_iter = inter_p.ranges[0..axis]
                                 .iter()
@@ -336,7 +338,7 @@ where
                         }
                         if r2.difference(r1).next().is_some() {
                             let diff =
-                                vec![T::new(r2.difference(r1).cloned().collect()).force_sorted()];
+                                vec![T::from_sorted(r2.difference(r1))];
                             //println!("diff2 {:?}", diff);
                             let new_iter = inter_p.ranges[0..axis]
                                 .iter()
@@ -554,7 +556,7 @@ mod tests {
 
         /* 1D */
         idpr = IdRangeProduct::<IdRangeList> {
-            ranges: vec![IdRangeList::new(vec![0, 1])],
+            ranges: vec![IdRangeList::from(vec![0, 1])],
         };
 
         assert_eq!(
@@ -565,9 +567,9 @@ mod tests {
         /* ND */
         idpr = IdRangeProduct::<IdRangeList> {
             ranges: vec![
-                IdRangeList::new(vec![0, 1]),
-                IdRangeList::new(vec![2, 3]),
-                IdRangeList::new(vec![5, 6]),
+                IdRangeList::from(vec![0, 1]),
+                IdRangeList::from(vec![2, 3]),
+                IdRangeList::from(vec![5, 6]),
             ],
         };
 

@@ -1,8 +1,31 @@
+use super::SortedIterator;
 use super::{IdRange, IdRangeStep};
 use itertools::Itertools;
 use std::collections::btree_set;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
+
+impl From<u32> for IdRangeTree {
+    fn from(index: u32) -> Self {
+        let mut bt = BTreeSet::new();
+        bt.insert(index);
+        IdRangeTree { indexes: bt }
+    }
+}
+
+impl From<Vec<u32>> for IdRangeTree {
+    fn from(indexes: Vec<u32>) -> Self {
+        let mut bt = BTreeSet::new();
+        bt.extend(&indexes);
+        IdRangeTree { indexes: bt }
+    }
+}
+
+impl SortedIterator for btree_set::Union<'_, u32> {}
+impl SortedIterator for btree_set::Difference<'_, u32> {}
+impl SortedIterator for btree_set::Intersection<'_, u32> {}
+impl SortedIterator for btree_set::SymmetricDifference<'_, u32> {}
+
 
 impl IdRange for IdRangeTree {
     type SelfIter<'a> = btree_set::Iter<'a, u32>;
@@ -11,13 +34,13 @@ impl IdRange for IdRangeTree {
     type IntersectionIter<'a> = btree_set::Intersection<'a, u32>;
     type UnionIter<'a> = btree_set::Union<'a, u32>;
 
-    fn new(indexes: Vec<u32>) -> IdRangeTree {
+    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32>) -> IdRangeTree {
         let mut bt = BTreeSet::new();
-        bt.extend(&indexes);
+        bt.extend(indexes);
         IdRangeTree { indexes: bt }
     }
 
-    fn new_empty() -> Self {
+    fn new() -> Self {
         IdRangeTree {
             indexes: BTreeSet::new(),
         }
@@ -57,7 +80,7 @@ impl IdRange for IdRangeTree {
         self.indexes.len()
     }
     fn sort(&mut self) {}
-    fn force_sorted(self) -> Self {
+    fn lazy(self) -> Self {
         self
     }
 }

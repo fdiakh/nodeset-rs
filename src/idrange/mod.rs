@@ -4,37 +4,75 @@ mod rangetree;
 pub use rangelist::IdRangeList;
 pub use rangetree::IdRangeTree;
 
-pub trait IdRange {
+pub trait SortedIterator: Iterator {}
+
+/// Interface for a 1-dimensional range of numerical ids
+pub trait IdRange: From<Vec<u32>> + From<u32> {
     type SelfIter<'a>: Iterator<Item = &'a u32> + Clone
     where
         Self: 'a;
-    type DifferenceIter<'a>: Iterator<Item = &'a u32>
+    type DifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
-    type SymmetricDifferenceIter<'a>: Iterator<Item = &'a u32>
+    type SymmetricDifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
-    type IntersectionIter<'a>: Iterator<Item = &'a u32>
+    type IntersectionIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
-    type UnionIter<'a>: Iterator<Item = &'a u32>
+    type UnionIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
 
-    fn new(indexes: Vec<u32>) -> Self;
-    fn new_empty() -> Self;
-    fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a>;
-    fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a>;
-    fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a>;
-    fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a>;
-    fn iter(&self) -> Self::SelfIter<'_>;
-    fn contains(&self, id: u32) -> bool;
-    fn is_empty(&self) -> bool;
-    fn push(&mut self, other: &Self);
-    fn push_idrs(&mut self, other: &IdRangeStep);
-    fn len(&self) -> usize;
+    fn new() -> Self;
+    /// Makes the range lazy, meaning that it will no longer be automatically sorted or deduplicated when adding elements.
+    /// Ensemblist operations will fail while the range is in lazy mode.
+    fn lazy(self) -> Self;
+
+    /// Restores the range to a non-lazy state.
     fn sort(&mut self);
-    fn force_sorted(self) -> Self;
+
+    /// Returns an iterator over elements in the range that are not in other range
+    /// Fails if the range is lazy
+    /// The iterator is sorted and deduplicated
+    fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a>;
+
+    /// Returns an iterator over elements in either range but not both
+    /// Fails if the range is lazy
+    /// The iterator is sorted and deduplicated
+    fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a>;
+
+    /// Returns an iterator over elements in both ranges
+    /// Fails if the range is lazy
+    /// The iterator is sorted and deduplicated
+    fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a>;
+
+    /// Returns an iterator over elements in either range
+    /// Fails if the range is lazy
+    /// The iterator is sorted and deduplicated
+    fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a>;
+
+    /// Returns whether the range contains the given id
+    /// Fails if the range is lazy
+    fn contains(&self, id: u32) -> bool;
+
+    /// Returns an iterator over elements in the range
+    fn iter(&self) -> Self::SelfIter<'_>;
+
+    /// Returns whether the range is empty
+    fn is_empty(&self) -> bool;
+
+    /// Extends the range with the given range
+    fn push(&mut self, other: &Self);
+
+    /// Extends the range with the given range
+    fn push_idrs(&mut self, other: &IdRangeStep);
+
+    /// Returns the number of elements in the range
+    fn len(&self) -> usize;
+
+    /// Extends the range with elements from the given iterator
+    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32> + SortedIterator) -> Self;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
