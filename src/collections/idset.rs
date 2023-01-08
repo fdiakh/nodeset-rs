@@ -1,7 +1,7 @@
 use crate::idrange::IdRange;
 use itertools::Itertools;
+use log::trace;
 use std::fmt::{self, Debug, Display};
-
 
 /// A product of IdRanges over multiple dimensions
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
@@ -93,8 +93,7 @@ where
             ranges[i] = rng;
             products.push(IdRangeProduct { ranges });
 
-            next_ranges[i] =
-                T::from_sorted(oidr.intersection(sidr));
+            next_ranges[i] = T::from_sorted(oidr.intersection(sidr));
         }
 
         products
@@ -229,11 +228,13 @@ where
             std::cmp::Ordering::Equal
         });
     }
+
+    /// Split all products into products with one element each
     fn full_split(&mut self) {
-        /*  println!("full split"); */
+        trace!("Splitting products into single elements");
+
         let mut split_products = vec![];
         for p in &self.products {
-            // Each product is split into a list of products with only on element each
             let mut first_range = true;
             let start = split_products.len();
             for rng in &p.ranges {
@@ -263,16 +264,21 @@ where
             }
         }
         self.products = split_products;
-        /* println!("splitted"); */
+
         self.sort(0);
         self.products.dedup();
-        /* println!("sorted"); */
     }
 
+    /// Split products into mergeable products by creating products with common
+    /// ranges.
+    ///
+    /// Prioritize splitting ranges along the firt dimensions to be able
+    /// to the create largest ranges possible along the last dimensions in the
+    /// merging step.
     fn minimal_split(&mut self) {
-        /* println!("minimal split"); */
+        trace!("Splitting products to create common ranges");
+
         self.sort(0);
-        /* println!("sorted"); */
         let mut idx1 = 0;
         while idx1 + 1 < self.products.len() {
             let mut cur_len = self.products.len();
@@ -280,7 +286,7 @@ where
             while idx2 < cur_len {
                 let p1 = &self.products[idx1];
                 let p2 = &self.products[idx2];
-                /*            println!("compare p1 {} with p2 {}", p1, p2); */
+
                 let mut inter_p = IdRangeProduct::<T> { ranges: vec![] };
                 let mut new_products = vec![];
                 let mut keep = false;
@@ -288,19 +294,22 @@ where
                 let mut intersect = false;
                 let mut split = false;
 
+                trace!("Checking if we can split p1: {p1} and p2: {p2} to create a common range",);
                 let num_axis = p1.num_axis();
                 for (axis, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
                     intersect = r2.intersection(r1).next().is_some();
                     if !intersect && (axis < num_axis - 1 || !split) {
+                        trace!("Dimension {axis} does not intersect and we have not split yet or are finished");
                         keep = true;
                         if p1.ranges[0].iter().last() < p2.ranges[0].iter().next() {
+                            trace!("Further products cannot intersect with p1");
                             term = true;
                         }
                         break;
                     }
 
                     if !intersect {
-                        //println!("split push");
+                        trace!("Dimension {axis} does not intersect but we have a previous split");
                         new_products.push(IdRangeProduct {
                             ranges: inter_p.ranges[0..axis]
                                 .iter()
@@ -315,19 +324,20 @@ where
                                 .cloned()
                                 .collect(),
                         });
+                        trace!(
+                            "Pushed new products {} {}",
+                            new_products[new_products.len() - 2],
+                            new_products[new_products.len() - 1]
+                        );
                     } else if r1 == r2 {
-                        //println!("same range {} {}", r1, r2);
+                        trace!("Dimension {axis} is common");
                         inter_p.ranges.push(r1.clone());
                     } else {
-                        //println!("split range");
+                        trace!("Dimension {axis} intersects: split products");
                         split = true;
-                        inter_p
-                            .ranges
-                            .push(T::from_sorted(r1.intersection(r2)));
+                        inter_p.ranges.push(T::from_sorted(r1.intersection(r2)));
                         if r1.difference(r2).next().is_some() {
-                            let diff =
-                                vec![T::from_sorted(r1.difference(r2))];
-                            //println!("diff1 {:?}", diff);
+                            let diff = vec![T::from_sorted(r1.difference(r2))];
                             let new_iter = inter_p.ranges[0..axis]
                                 .iter()
                                 .chain(&diff)
@@ -335,11 +345,13 @@ where
                             new_products.push(IdRangeProduct {
                                 ranges: new_iter.cloned().collect(),
                             });
+                            trace!(
+                                "Pushed new product {}",
+                                new_products[new_products.len() - 1]
+                            );
                         }
                         if r2.difference(r1).next().is_some() {
-                            let diff =
-                                vec![T::from_sorted(r2.difference(r1))];
-                            //println!("diff2 {:?}", diff);
+                            let diff = vec![T::from_sorted(r2.difference(r1))];
                             let new_iter = inter_p.ranges[0..axis]
                                 .iter()
                                 .chain(&diff)
@@ -347,47 +359,52 @@ where
                             new_products.push(IdRangeProduct {
                                 ranges: new_iter.cloned().collect(),
                             });
+                            trace!(
+                                "Pushed new product {}",
+                                new_products[new_products.len() - 1]
+                            );
                         }
+
+                        trace!("In progress intersection {}", inter_p);
                     }
                 }
                 if !keep {
+                    trace!("Deleting p1 and p2");
                     if intersect {
-                        //println!("intersect");
                         self.products[idx1] = inter_p;
                     } else {
-                        //println!("no intersect");
                         self.products[idx1] = new_products[0].clone();
                         new_products.swap_remove(0);
                     }
                     if idx2 < cur_len - 1 {
-                        //println!("idx2 not at end");
                         self.products.swap(idx2, cur_len - 1);
                     }
                     self.products.swap_remove(cur_len - 1);
                     cur_len -= 1;
-                    //println!("inserting {}", new_products.len());
                     self.products.append(&mut new_products);
                 } else {
-                    //println!("keep");
+                    trace!("Keeeping original p1 and p2");
                     idx2 += 1;
                 }
                 if term {
-                    //println!("term");
+                    trace!("Skipping comparison with other products which cannot intersect");
                     break;
                 }
             }
             self.sort(idx1);
-            //println!("next p1");
+            trace!("Next products");
             idx1 += 1
         }
     }
 
+    /// Merge products with common ranges.
     fn merge(&mut self) {
-        /* println!("merge"); */
         let mut dellst = vec![false; self.products.len()];
+        let mut merge_range = self.products[0].num_axis() - 1;
 
+        // Loop until we don't find anything to merge
+        // Prioritize merging axis per axis from the last to the first
         loop {
-            /* println!("loop"); */
             let mut update = false;
             let mut idx1 = 0;
             while idx1 + 1 < self.products.len() {
@@ -402,29 +419,32 @@ where
                         continue;
                     }
 
-                    //let mut new_p = vec![];
                     let mut num_diffs = 0;
                     let mut range = 0;
                     {
                         let p2 = &self.products[idx2];
                         let p1 = &self.products[idx1];
-                        /*                  println!("try merge p1 {} with p2 {}", p1, p2); */
+                        trace!("try merge p1: {p1} with p2: {p2} on range {merge_range}");
                         for (i, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
                             if r1 == r2 {
-                                /* println!("same range"); */
+                                trace!("Range {i} is common");
                             } else if num_diffs == 0 {
-                                /* println!("merge range"); */
+                                trace!("Range {i} is the first to differ");
                                 num_diffs += 1;
                                 range = i;
+                                if range != merge_range {
+                                    trace!("Not the range we want at this stage: abort");
+                                    break;
+                                }
                             } else {
-                                /* println!("abort"); */
+                                trace!("More than one difference: abort");
                                 num_diffs += 1;
                                 break;
                             }
                         }
                     }
-                    if num_diffs < 2 {
-                        //println!("merge product");
+                    if num_diffs < 2 && range == merge_range {
+                        trace!("Merge both products with only differ in range {range}");
                         update = true;
                         let (pp1, pp2) = self.products.split_at_mut(idx2);
 
@@ -436,7 +456,13 @@ where
                 idx1 += 1;
             }
             if !update {
-                break;
+                if merge_range == 0 {
+                    break;
+                } else {
+                    merge_range -= 1;
+                }
+            } else {
+                merge_range = self.products[0].num_axis() - 1;
             }
         }
         self.products = self
@@ -454,11 +480,14 @@ where
             p.prepare_sort()
         }
 
+        // This is a heuristic to determine whether to do a full split or a
+        // minimal split. The minimal split algorithm is O(n^2) in the number of
+        // products, so it's not worth using it if the total number of elements
+        // is smaller than the number of products squared. In that case, we do a
+        // full split, which is O(n) in the number of elements
         if self.len() > self.products.len() * self.products.len() {
-            /* println!("minimal split"); */
             self.minimal_split();
         } else {
-            /* println!("full split"); */
             self.full_split();
         }
         self.merge();

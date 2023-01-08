@@ -37,6 +37,8 @@ enum Commands {
 }
 
 fn main() -> Result<()> {
+    env_logger::init();
+
     let args = Cli::parse();
     match args.command {
         Commands::Fold { nodeset } => {
