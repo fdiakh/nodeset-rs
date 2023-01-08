@@ -14,5 +14,7 @@ itertools = "0"
 clap = {version = "4.0.32", features = ["derive"]}
 nom = "7.1.2"
 eyre = "0.6.8"
+log = { version = "0.4.17", features = ["release_max_level_debug"] }
+env_logger = "0.10.0"
 [features]
 unstable = []
