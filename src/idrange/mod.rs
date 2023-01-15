@@ -3,10 +3,11 @@ mod rangetree;
 
 pub use rangelist::IdRangeList;
 pub use rangetree::IdRangeTree;
+use std::fmt;
 
 pub trait SortedIterator: Iterator {}
 
-/// Interface for a 1-dimensional range of numerical ids
+/// Interface for a 1-dimensional range of integers
 pub trait IdRange: From<Vec<u32>> + From<u32> {
     type SelfIter<'a>: Iterator<Item = &'a u32> + Clone
     where
@@ -67,7 +68,7 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
     /// Extends the range with the given range
     fn push(&mut self, other: &Self);
 
-    /// Extends the range with the given range
+    /// Extends the range with the given contiguous range of zero-padded ids
     fn push_idrs(&mut self, other: &IdRangeStep);
 
     /// Returns the number of elements in the range
@@ -78,8 +79,306 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+/// A contiguous range of zero-padded ids
 pub struct IdRangeStep {
     pub start: u32,
     pub end: u32,
     pub step: usize,
+    pub pad: u32,
+}
+
+impl IdRangeStep {
+    // Returns the rank of the first id in the range
+    // Zero-padded ids are sorted such as 1 < 9 < 00 < 09 < 10 < 99 < 000 ...
+    fn start_rank(&self) -> u32 {
+        padded_id_to_rank(self.start, self.pad)
+    }
+
+    // Convert a zero-padded id range into a list of contiguous rank ranges.
+    // While it would be more elegant to return an iterator here but it would
+    // usually only yield very few elements
+    fn rank_ranges(&self) -> Vec<(u32, u32, usize)> {
+        // FIXME: overflow handling is not right if we hit the saturating point.
+        // We should prevent creation of idranges that are too large
+        let mut res = Vec::new();
+        let mut bound = 10u32
+            .checked_pow(u32::max(self.pad, 1))
+            .unwrap_or_else(|| lower_pow10_bound(u32::MAX).0);
+
+        let mut start = if self.start < bound {
+            let remainder = (bound - 1 - self.start) % self.step as u32;
+
+            res.push((
+                padded_id_to_rank(self.start, self.pad),
+                padded_id_to_rank(u32::min(self.end, bound - 1), self.pad),
+                self.step,
+            ));
+            let prev_bound = bound;
+            bound = bound.saturating_mul(10);
+            prev_bound + (self.step as u32) - remainder - 1
+        } else {
+            bound = lower_pow10_bound(self.start).0.saturating_mul(10);
+            self.start
+        };
+
+        while start <= self.end {
+            let remainder = (bound - 1 - self.start) % self.step as u32;
+
+            let end = u32::min(self.end, bound - 1);
+            res.push((
+                padded_id_to_rank(start, self.pad),
+                padded_id_to_rank(end, self.pad),
+                self.step,
+            ));
+            start = bound + self.step as u32 - remainder - 1;
+            bound = bound.saturating_mul(10);
+        }
+
+        res
+    }
+}
+
+// Displays a rank as a zero-padded string
+pub fn rank_to_string(rank: u32) -> String {
+    CachedTranslation::new(rank).to_string()
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+// Optimizes the translation of a rank to a zero-padded id by caching
+// costly intermediate computations
+struct CachedTranslation {
+    rank: u32,
+    id: u32,
+    pad: u32,
+    jump_pad: u32,
+}
+
+impl CachedTranslation {
+    // Returns the maximum padded length of ids that can be merged with this one
+    // in a continguous range
+    fn max_pad(&self) -> u32 {
+        if self.rank != 0 && self.id < self.jump_pad / 10 {
+            self.pad
+        } else {
+            u32::MAX
+        }
+    }
+
+    // Maps a rank to a zero-padded id and returns it along with cached
+    // values
+    fn new(rank: u32) -> Self {
+        let mut id = rank;
+        let mut pad = 1;
+        let mut jump_pad = 10;
+
+        while id >= jump_pad {
+            id -= jump_pad;
+            jump_pad *= 10;
+            pad += 1;
+        }
+
+        CachedTranslation {
+            rank,
+            id,
+            pad,
+            jump_pad,
+        }
+    }
+
+    // Maps a rank to a zero-padded id using cached values if possible
+    // Results are only valid for ranks greater than the rank used to create the cache
+    fn interpolate(&self, new_rank: u32) -> Self {
+        let jump_rank = self.rank + self.jump_pad - self.id;
+        if new_rank < jump_rank {
+            return Self {
+                rank: new_rank,
+                id: self.id + (new_rank - self.rank),
+                pad: self.pad,
+                jump_pad: self.jump_pad,
+            };
+        }
+        CachedTranslation::new(new_rank)
+    }
+
+    // Returns whether the given rank can be merged with this one while meeting
+    // the max_pad constraint
+    fn is_mergeable(&self, other: &Self, max_pad: u32) -> bool {
+        other.id == self.id + 1 && other.pad <= max_pad
+    }
+}
+
+// Display the cached rank as a zero-padded string
+impl fmt::Display for CachedTranslation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
+        let pad = self.pad as usize;
+        let id = self.id;
+        write!(f, "{id:0>pad$}")
+    }
+}
+
+// Convert a padded id to a rank
+fn padded_id_to_rank(id: u32, pad: u32) -> u32 {
+    let mut rank: u32 = 0;
+
+    for _ in 1..u32::max(lower_pow10_bound(id).1 + 1, pad) {
+        rank = rank * 10 + 10
+    }
+
+    id + rank
+}
+
+// Returns the closest power of 10 that is less than or equal to n and the corresponding exponent
+// FIXME: Use ilog10 from the standard library once it is stabilized
+fn lower_pow10_bound(n: u32) -> (u32, u32) {
+    let mut power: u32 = 1;
+    let mut exp = 0;
+    loop {
+        let Some(new_power) = power.checked_mul(10u32) else {
+            break;
+        };
+        if new_power > n {
+            break;
+        }
+        power = new_power;
+        exp += 1;
+    }
+
+    (power, exp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rank_ranges() {
+        assert_eq!(
+            IdRangeStep {
+                start: 0,
+                end: 9,
+                step: 1,
+                pad: 0
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![("0".to_string(), "9".to_string(), 1)]
+        );
+
+        assert_eq!(
+            IdRangeStep {
+                start: 100,
+                end: 110,
+                step: 1,
+                pad: 0
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![("100".to_string(), "110".to_string(), 1)]
+        );
+
+        assert_eq!(
+            IdRangeStep {
+                start: 0,
+                end: 20,
+                step: 1,
+                pad: 1
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![
+                ("0".to_string(), "9".to_string(), 1),
+                ("10".to_string(), "20".to_string(), 1)
+            ]
+        );
+
+        assert_eq!(
+            IdRangeStep {
+                start: 0,
+                end: 20,
+                step: 1,
+                pad: 2
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![("00".to_string(), "20".to_string(), 1)]
+        );
+
+        assert_eq!(
+            IdRangeStep {
+                start: 0,
+                end: 15,
+                step: 7,
+                pad: 0
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![
+                ("0".to_string(), "9".to_string(), 7),
+                ("14".to_string(), "15".to_string(), 7)
+            ]
+        );
+
+        assert_eq!(
+            IdRangeStep {
+                start: 0,
+                end: 1500,
+                step: 7,
+                pad: 2
+            }
+            .rank_ranges()
+            .iter()
+            .map(|(start, end, step)| (rank_to_string(*start), rank_to_string(*end), *step))
+            .collect::<Vec<_>>(),
+            vec![
+                ("00".to_string(), "99".to_string(), 7),
+                ("105".to_string(), "999".to_string(), 7),
+                ("1001".to_string(), "1500".to_string(), 7)
+            ]
+        );
+    }
+
+    use std::num::ParseIntError;
+    fn rank_of_string(s: &str) -> Result<u32, ParseIntError> {
+        Ok(padded_id_to_rank(s.parse::<u32>()?, s.len() as u32))
+    }
+
+    #[test]
+    fn test_rank_of_string() {
+        assert_eq!(rank_of_string("0").unwrap(), 0);
+        assert_eq!(rank_of_string("9").unwrap(), 9);
+        assert_eq!(rank_of_string("01").unwrap(), 11);
+        assert_eq!(rank_of_string("09").unwrap(), 19);
+        assert_eq!(rank_of_string("10").unwrap(), 20);
+        assert_eq!(rank_of_string("19").unwrap(), 29);
+        assert_eq!(rank_of_string("99").unwrap(), 109);
+        assert_eq!(rank_of_string("000").unwrap(), 110);
+        assert_eq!(rank_of_string("001").unwrap(), 111);
+        assert_eq!(rank_of_string("010").unwrap(), 120);
+        assert_eq!(rank_of_string("999").unwrap(), 1109);
+    }
+
+    #[test]
+    fn test_string_of_rank() {
+        assert_eq!("0", rank_to_string(0));
+        assert_eq!("9", rank_to_string(9));
+        assert_eq!("01", rank_to_string(11));
+        assert_eq!("09", rank_to_string(19));
+        assert_eq!("10", rank_to_string(20));
+        assert_eq!("19", rank_to_string(29));
+        assert_eq!("99", rank_to_string(109));
+        assert_eq!("000", rank_to_string(110));
+        assert_eq!("001", rank_to_string(111));
+        assert_eq!("010", rank_to_string(120));
+        assert_eq!("999", rank_to_string(1109));
+    }
 }

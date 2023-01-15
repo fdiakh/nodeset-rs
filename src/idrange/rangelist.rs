@@ -1,4 +1,4 @@
-use super::{IdRange, IdRangeStep, SortedIterator};
+use super::{CachedTranslation, IdRange, IdRangeStep, SortedIterator};
 use itertools::Itertools;
 use std::fmt::{self, Debug, Display};
 
@@ -228,10 +228,12 @@ impl IdRange for IdRangeList {
         }
     }
     fn push_idrs(&mut self, idrs: &IdRangeStep) {
-        let sorted_after = self.sorted && idrs.start > *self.indexes.last().unwrap_or(&0);
+        let sorted_after = self.sorted && idrs.start_rank() > *self.indexes.last().unwrap_or(&0);
 
-        self.indexes
-            .extend((idrs.start..idrs.end + 1).step_by(idrs.step));
+        for (start, end, step) in idrs.rank_ranges() {
+            self.indexes.extend((start..end + 1).step_by(step));
+        }
+
         if self.sorted && !sorted_after {
             self.sorted = false;
             self.sort();
@@ -322,11 +324,16 @@ impl IdRange for IdRangeList {
         self.sorted = false;
         self
     }
-
 }
 
 impl Display for IdRangeList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_empty() {
+            return write!(f, "");
+        }
+
+        let mut cache = CachedTranslation::new(self.indexes[0]);
+
         let mut rngs = self
             .indexes
             .iter()
@@ -337,13 +344,28 @@ impl Display for IdRangeList {
                     .skip(1),
             )
             .batching(|it| {
-                if let Some((&first, &next)) = it.next() {
-                    if next != first + 1 {
-                        return Some(first.to_string());
+                if let Some((_, &next)) = it.next() {
+                    let max_pad = cache.max_pad();
+                    let mut new_cache = cache.interpolate(next);
+                    let mergeable = cache.is_mergeable(&new_cache, max_pad);
+
+                    if !mergeable {
+                        let res = cache.to_string();
+                        cache = new_cache;
+                        return Some(res);
                     }
-                    for (&cur, &next) in it {
-                        if next != cur + 1 {
-                            return Some(format!("{}-{}", first, cur));
+
+                    let mut cur_cache = new_cache;
+                    for (_, &next) in it {
+                        new_cache = cur_cache.interpolate(next);
+                        let mergeable = cur_cache.is_mergeable(&new_cache, max_pad);
+
+                        if !mergeable {
+                            let res = format!("{cache}-{cur_cache}");
+                            cache = new_cache;
+                            return Some(res);
+                        } else {
+                            std::mem::swap(&mut cur_cache, &mut new_cache);
                         }
                     }
                     // Should never be reached

@@ -4,13 +4,11 @@ use nom::{
     bytes::complete::{tag, take_while1},
     character::complete::{char, digit1, multispace0, one_of},
     combinator::{all_consuming, map, map_res, opt, verify},
-    error::VerboseError,
     multi::{fold_many0, many0, separated_list1},
     sequence::{delimited, pair, tuple},
     IResult,
 };
 use std::fmt;
-use std::num::ParseIntError;
 
 fn is_component_char(c: char) -> bool {
     char::is_alphabetic(c) || ['-', '_', '.'].contains(&c)
@@ -18,20 +16,20 @@ fn is_component_char(c: char) -> bool {
 
 use super::nodeset::NodeSetDimensions;
 use crate::idrange::{IdRange, IdRangeStep};
-use crate::{IdSet, NodeSet};
+use crate::{IdSet, NodeSet, NodeSetParseError};
 
-fn term<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
+fn term<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     delimited(
         multispace0,
-        alt((nodeset, delimited(char('('), expr, char(')')))),
+        alt((group_or_nodeset, delimited(char('('), expr, char(')')))),
         multispace0,
     )(i)
 }
 
-pub fn op(i: &str) -> IResult<&str, char, VerboseError<&str>> {
+pub fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
     delimited(multispace0, one_of("+,&!^"), multispace0)(i)
 }
 
@@ -39,14 +37,14 @@ pub fn op(i: &str) -> IResult<&str, char, VerboseError<&str>> {
     map(multispace0, |_| NodeSet::default())(i)
 } */
 
-pub fn full_expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
+pub fn full_expr<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     all_consuming(expr)(i)
 }
 
-pub fn expr<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
+pub fn expr<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
@@ -74,7 +72,24 @@ where
     )(i)
 }
 
-fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, VerboseError<&str>>
+fn group_or_nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+where
+    T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
+{
+    alt((group, nodeset))(i)
+}
+
+fn group<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+where
+    T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
+{
+    map_res(
+        pair(char('@'), group_name),
+        |r| -> Result<NodeSet<T>, NodeSetParseError> { r.1.parse() },
+    )(i)
+}
+
+fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
@@ -123,11 +138,15 @@ where
     )(i)
 }
 
-fn node_component(i: &str) -> IResult<&str, &str, VerboseError<&str>> {
+fn group_name(i: &str) -> IResult<&str, &str, CustomError<&str>> {
     take_while1(is_component_char)(i)
 }
 
-fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>, VerboseError<&str>> {
+fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
+    take_while1(is_component_char)(i)
+}
+
+fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>, CustomError<&str>> {
     delimited(
         char('['),
         separated_list1(tag(","), id_range_step),
@@ -135,23 +154,57 @@ fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>, VerboseError<&
     )(i)
 }
 
-fn id_standalone(i: &str) -> IResult<&str, Vec<IdRangeStep>, VerboseError<&str>> {
+use std::convert::TryFrom;
+
+fn id_standalone(i: &str) -> IResult<&str, Vec<IdRangeStep>, CustomError<&str>> {
     map_res(
         digit1,
-        |d: &str| -> Result<Vec<IdRangeStep>, ParseIntError> {
+        |d: &str| -> Result<Vec<IdRangeStep>, NodeSetParseError> {
             let start = d.parse::<u32>()?;
             Ok(vec![IdRangeStep {
                 start,
                 end: start,
                 step: 1,
+                pad: u32::try_from(d.len())?,
             }])
         },
     )(i)
 }
 
+use nom::combinator::cut;
+use nom::error::ErrorKind;
+use nom::error::FromExternalError;
+use nom::error::ParseError;
+use std::convert::TryInto;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CustomError<I> {
+    NodeSetError(NodeSetParseError),
+    Nom(I, ErrorKind),
+}
+
+impl<I> ParseError<I> for CustomError<I> {
+    fn from_error_kind(input: I, kind: ErrorKind) -> Self {
+        CustomError::Nom(input, kind)
+    }
+
+    fn append(_: I, _: ErrorKind, other: Self) -> Self {
+        other
+    }
+}
+impl<I> FromExternalError<I, NodeSetParseError> for CustomError<I> {
+    fn from_external_error(_: I, _: ErrorKind, e: NodeSetParseError) -> Self {
+        CustomError::NodeSetError(e)
+    }
+}
+
+fn is_padded(s: &str) -> bool {
+    s.chars().take_while(|c| *c == '0').count() > 0 && s != "0"
+}
+
 #[allow(clippy::type_complexity)]
-fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, VerboseError<&str>> {
-    map_res(pair(digit1,
+fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, CustomError<&str>> {
+    cut(map_res(pair(digit1,
                          opt(tuple((
                                  tag("-"),
                                 digit1,
@@ -160,11 +213,19 @@ fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, VerboseError<&str>> {
                                         tag("/"),
                                         digit1)))))),
 
-                        |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>) | -> Result<IdRangeStep, ParseIntError>{
-                            let start = s.0.parse::<u32>() ?;
+                        |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>) | -> Result<IdRangeStep, NodeSetParseError>{
+                            let start = s.0.parse::<u32>()?;
+                            let mut padded = is_padded(s.0);
+
                             let (end, step) = match s.1 {
                                 None => {(start, 1)},
                                 Some(s1) => {
+
+                                    padded |= is_padded(s1.1);
+                                    if padded && s1.1.len() != s.0.len() {
+                                        return Err(NodeSetParseError::Padding(i.to_string()));
+                                    }
+
                                     let end = s1.1.parse::<u32>() ?;
                                     match s1.2 {
                                         None => {(end, 1)},
@@ -172,9 +233,18 @@ fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, VerboseError<&str>> {
                                     }
                                 }
                             };
-                            Ok(IdRangeStep{start, end, step})
+                            let pad = if padded {
+                                s.0.len()
+                            } else {
+                                0
+                            };
+                            if start > end {
+                                return Err(NodeSetParseError::Reverse(i.to_string()));
+                            }
+
+                            Ok(IdRangeStep{start, end, step, pad: pad.try_into()?})
                         }
-                        )(i)
+                        ))(i)
 }
 
 #[cfg(test)]
@@ -190,7 +260,8 @@ mod tests {
                 IdRangeStep {
                     start: 2,
                     end: 2,
-                    step: 1
+                    step: 1,
+                    pad: 0
                 }
             ))
         );
@@ -201,7 +272,8 @@ mod tests {
                 IdRangeStep {
                     start: 2,
                     end: 34,
-                    step: 1
+                    step: 1,
+                    pad: 0
                 }
             ))
         );
@@ -212,7 +284,8 @@ mod tests {
                 IdRangeStep {
                     start: 2,
                     end: 34,
-                    step: 8
+                    step: 8,
+                    pad: 0
                 }
             ))
         );
@@ -226,7 +299,8 @@ mod tests {
                 IdRangeStep {
                     start: 34,
                     end: 34,
-                    step: 1
+                    step: 1,
+                    pad: 0
                 }
             ))
         );
@@ -241,7 +315,8 @@ mod tests {
                 vec![IdRangeStep {
                     start: 2,
                     end: 2,
-                    step: 1
+                    step: 1,
+                    pad: 0
                 }]
             ))
         );
@@ -253,17 +328,20 @@ mod tests {
                     IdRangeStep {
                         start: 2,
                         end: 2,
-                        step: 1
+                        step: 1,
+                        pad: 0
                     },
                     IdRangeStep {
                         start: 3,
                         end: 4,
-                        step: 1
+                        step: 1,
+                        pad: 0
                     },
                     IdRangeStep {
                         start: 5,
                         end: 67,
-                        step: 8
+                        step: 8,
+                        pad: 0
                     }
                 ]
             ))
