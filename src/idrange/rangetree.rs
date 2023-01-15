@@ -1,4 +1,4 @@
-use super::SortedIterator;
+use super::{CachedTranslation, SortedIterator};
 use super::{IdRange, IdRangeStep};
 use itertools::Itertools;
 use std::collections::btree_set;
@@ -25,7 +25,6 @@ impl SortedIterator for btree_set::Union<'_, u32> {}
 impl SortedIterator for btree_set::Difference<'_, u32> {}
 impl SortedIterator for btree_set::Intersection<'_, u32> {}
 impl SortedIterator for btree_set::SymmetricDifference<'_, u32> {}
-
 
 impl IdRange for IdRangeTree {
     type SelfIter<'a> = btree_set::Iter<'a, u32>;
@@ -73,8 +72,9 @@ impl IdRange for IdRangeTree {
         self.indexes.extend(&other.indexes);
     }
     fn push_idrs(&mut self, idrs: &IdRangeStep) {
-        self.indexes
-            .extend((idrs.start..idrs.end + 1).step_by(idrs.step))
+        for (start, end, step) in idrs.rank_ranges() {
+            self.indexes.extend((start..end + 1).step_by(step));
+        }
     }
     fn len(&self) -> usize {
         self.indexes.len()
@@ -87,6 +87,11 @@ impl IdRange for IdRangeTree {
 
 impl Display for IdRangeTree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_empty() {
+            return write!(f, "");
+        }
+        let mut cache = CachedTranslation::new(*self.indexes.iter().next().unwrap());
+
         let mut rngs = self
             .indexes
             .iter()
@@ -97,13 +102,28 @@ impl Display for IdRangeTree {
                     .skip(1),
             )
             .batching(|it| {
-                if let Some((&first, &next)) = it.next() {
-                    if next != first + 1 {
-                        return Some(first.to_string());
+                if let Some((_, &next)) = it.next() {
+                    let max_pad = cache.max_pad();
+                    let mut new_cache = cache.interpolate(next);
+                    let mergeable = cache.is_mergeable(&new_cache, max_pad);
+
+                    if !mergeable {
+                        let res = cache.to_string();
+                        cache = new_cache;
+                        return Some(res);
                     }
-                    for (&cur, &next) in it {
-                        if next != cur + 1 {
-                            return Some(format!("{}-{}", first, cur));
+
+                    let mut cur_cache = new_cache;
+                    for (_, &next) in it {
+                        new_cache = cur_cache.interpolate(next);
+                        let mergeable = cur_cache.is_mergeable(&new_cache, max_pad);
+
+                        if !mergeable {
+                            let res = format!("{cache}-{cur_cache}");
+                            cache = new_cache;
+                            return Some(res);
+                        } else {
+                            std::mem::swap(&mut cur_cache, &mut new_cache);
                         }
                     }
                     // Should never be reached
@@ -119,4 +139,123 @@ impl Display for IdRangeTree {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IdRangeTree {
     indexes: BTreeSet<u32>,
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    //create a btreeset from a vec<u32>
+    fn bt_from_vec(v: Vec<u32>) -> BTreeSet<u32> {
+        let mut bt = BTreeSet::new();
+        bt.extend(v);
+        bt
+    }
+
+    fn validate_rangetree_union_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
+        let rl1 = IdRangeTree {
+            indexes: bt_from_vec(a),
+        };
+
+        let rl2 = IdRangeTree {
+            indexes: bt_from_vec(b),
+        };
+        assert_eq!(rl1.union(&rl2).copied().collect::<Vec<u32>>(), c);
+    }
+
+    fn validate_rangetree_symdiff_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
+        let rl1 = IdRangeTree {
+            indexes: bt_from_vec(a),
+        };
+
+        let rl2 = IdRangeTree {
+            indexes: bt_from_vec(b),
+        };
+        assert_eq!(
+            rl1.symmetric_difference(&rl2)
+                .cloned()
+                .collect::<Vec<u32>>(),
+            c
+        );
+    }
+
+    fn validate_rangetree_intersection_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
+        let rl1 = IdRangeTree {
+            indexes: bt_from_vec(a),
+        };
+
+        let rl2 = IdRangeTree {
+            indexes: bt_from_vec(b),
+        };
+        assert_eq!(rl1.intersection(&rl2).cloned().collect::<Vec<u32>>(), c);
+    }
+    #[test]
+    fn rangetree_union() {
+        validate_rangetree_union_result(vec![0, 4, 9], vec![1, 2, 5, 7], vec![0, 1, 2, 4, 5, 7, 9]);
+        validate_rangetree_union_result(vec![], vec![1, 2, 5, 7], vec![1, 2, 5, 7]);
+        validate_rangetree_union_result(vec![0, 4, 9], vec![], vec![0, 4, 9]);
+        validate_rangetree_union_result(vec![0, 4, 9], vec![10, 11, 12], vec![0, 4, 9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn rangetree_symdiff() {
+        validate_rangetree_symdiff_result(
+            vec![0, 2, 4, 7, 9],
+            vec![1, 2, 5, 7],
+            vec![0, 1, 4, 5, 9],
+        );
+        validate_rangetree_symdiff_result(vec![], vec![1, 2, 5, 7], vec![1, 2, 5, 7]);
+        validate_rangetree_symdiff_result(vec![0, 4, 9], vec![], vec![0, 4, 9]);
+        validate_rangetree_symdiff_result(
+            vec![0, 4, 9],
+            vec![10, 11, 12],
+            vec![0, 4, 9, 10, 11, 12],
+        );
+    }
+
+    #[test]
+    fn rangetree_intersection() {
+        validate_rangetree_intersection_result(vec![0, 4, 9], vec![1, 2, 5, 7], vec![]);
+        validate_rangetree_intersection_result(vec![], vec![1, 2, 5, 7], vec![]);
+        validate_rangetree_intersection_result(vec![0, 4, 9], vec![], vec![]);
+        validate_rangetree_intersection_result(
+            vec![0, 4, 9, 7, 12, 34, 35],
+            vec![4, 11, 12, 37],
+            vec![4, 12],
+        );
+        validate_rangetree_intersection_result(
+            vec![4, 11, 12, 37],
+            vec![0, 4, 9, 7, 12, 34, 35],
+            vec![4, 12],
+        );
+    }
+
+    #[test]
+    fn rangetree_difference() {
+        let rl1 = IdRangeTree {
+            indexes: bt_from_vec(vec![1, 2, 3]),
+        };
+
+        let mut rl2 = IdRangeTree {
+            indexes: bt_from_vec(vec![1, 3]),
+        };
+        assert_eq!(rl1.difference(&rl2).cloned().collect::<Vec<u32>>(), vec![2]);
+
+        rl2 = IdRangeTree {
+            indexes: bt_from_vec(vec![]),
+        };
+        assert_eq!(
+            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(rl2.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+        rl2 = IdRangeTree {
+            indexes: bt_from_vec(vec![4, 5, 6]),
+        };
+        assert_eq!(
+            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
+            vec![1, 2, 3]
+        );
+        assert_eq!(rl1.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+    }
 }

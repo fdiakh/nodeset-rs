@@ -1,9 +1,9 @@
 use super::parsers;
+use crate::idrange::rank_to_string;
 use crate::idrange::IdRange;
 use crate::{IdSet, IdSetIter};
 use itertools::Itertools;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -76,7 +76,7 @@ where
                     dimnames
                         .iter()
                         .zip(coords.iter())
-                        .map(|(a, b)| format!("{}{}", a, b))
+                        .map(|(a, b)| format!("{}{}", a, rank_to_string(*b)))
                         .join(""),
                 );
             } else {
@@ -219,6 +219,8 @@ where
     }
 }
 
+use parsers::CustomError;
+
 impl<T> std::str::FromStr for NodeSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -229,9 +231,19 @@ where
         parsers::full_expr::<T>(s)
             .map(|r| r.1)
             .map_err(|e| match e {
-                nom::Err::Error(e) => NodeSetParseError::from(nom::Err::Error(e)),
+                nom::Err::Error(e) => NodeSetParseError::from(e),
+                nom::Err::Failure(e) => NodeSetParseError::from(e),
                 _ => panic!("unreachable"),
             })
+    }
+}
+
+impl From<CustomError<&str>> for NodeSetParseError {
+    fn from(e: CustomError<&str>) -> Self {
+        match e {
+            CustomError::NodeSetError(e) => e,
+            CustomError::Nom(e, _) => NodeSetParseError::Generic(e.to_string()),
+        }
     }
 }
 
@@ -281,36 +293,21 @@ where
         Ok(())
     }
 }
-#[derive(Debug, Clone)]
-pub struct NodeSetParseError {
-    err: String,
-}
 
-impl Error for NodeSetParseError {}
+use thiserror::Error;
 
-impl NodeSetParseError {
-    fn new(err: String) -> NodeSetParseError {
-        NodeSetParseError { err }
-    }
-}
-
-impl fmt::Display for NodeSetParseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "unable to parse: '{}'", self.err)
-    }
-}
-
-use nom::error::VerboseError;
-
-impl From<nom::Err<VerboseError<&str>>> for NodeSetParseError {
-    fn from(error: nom::Err<VerboseError<&str>>) -> Self {
-        match &error {
-            // This should not happen, as we are using complete parsers
-            nom::Err::Incomplete(_) => unreachable!(),
-            nom::Err::Error(e) => NodeSetParseError::new(e.errors.first().unwrap().0.to_string()),
-            nom::Err::Failure(e) => NodeSetParseError::new(e.errors.first().unwrap().0.to_string()),
-        }
-    }
+#[derive(Error, Debug, PartialEq, Eq)]
+pub enum NodeSetParseError {
+    #[error("invalid integer")]
+    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("value out of range")]
+    OverFlow(#[from] std::num::TryFromIntError),
+    #[error("inverted range '{0}'")]
+    Reverse(String),
+    #[error("unable to parse '{0}'")]
+    Generic(String),
+    #[error("mismatched padding: '{0}'")]
+    Padding(String),
 }
 
 #[cfg(test)]
