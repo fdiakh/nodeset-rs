@@ -99,8 +99,8 @@ where
 
     pub fn len(&self) -> usize {
         self.dimnames
-            .iter()
-            .map(|(_, set)| set.as_ref().map(|s| s.len()).unwrap_or(1))
+            .values()
+            .map(|set| set.as_ref().map(|s| s.len()).unwrap_or(1))
             .sum()
     }
 
