@@ -1,6 +1,5 @@
-use super::{CachedTranslation, SortedIterator};
+use super::SortedIterator;
 use super::{IdRange, IdRangeStep};
-use itertools::Itertools;
 use std::collections::btree_set;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
@@ -90,49 +89,15 @@ impl Display for IdRangeTree {
         if self.is_empty() {
             return write!(f, "");
         }
-        let mut cache = CachedTranslation::new(*self.indexes.iter().next().unwrap());
 
-        let mut rngs = self
-            .indexes
-            .iter()
-            .zip(
-                self.indexes
-                    .iter()
-                    .chain(self.indexes.iter().last())
-                    .skip(1),
+        write!(
+            f,
+            "[{}]",
+            super::fold_into_ranges(
+                self.indexes.iter().chain(self.indexes.last()),
+                *self.indexes.first().unwrap()
             )
-            .batching(|it| {
-                if let Some((_, &next)) = it.next() {
-                    let max_pad = cache.max_pad();
-                    let mut new_cache = cache.interpolate(next);
-                    let mergeable = cache.is_mergeable(&new_cache, max_pad);
-
-                    if !mergeable {
-                        let res = cache.to_string();
-                        cache = new_cache;
-                        return Some(res);
-                    }
-
-                    let mut cur_cache = new_cache;
-                    for (_, &next) in it {
-                        new_cache = cur_cache.interpolate(next);
-                        let mergeable = cur_cache.is_mergeable(&new_cache, max_pad);
-
-                        if !mergeable {
-                            let res = format!("{cache}-{cur_cache}");
-                            cache = new_cache;
-                            return Some(res);
-                        } else {
-                            std::mem::swap(&mut cur_cache, &mut new_cache);
-                        }
-                    }
-                    // Should never be reached
-                    None
-                } else {
-                    None
-                }
-            });
-        write!(f, "[{}]", rngs.join(","))
+        )
     }
 }
 

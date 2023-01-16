@@ -1,5 +1,4 @@
-use super::{CachedTranslation, IdRange, IdRangeStep, SortedIterator};
-use itertools::Itertools;
+use super::{IdRange, IdRangeStep, SortedIterator};
 use std::fmt::{self, Debug, Display};
 
 #[derive(Debug, Clone)]
@@ -325,6 +324,7 @@ impl IdRange for IdRangeList {
         self
     }
 }
+use std::iter;
 
 impl Display for IdRangeList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -332,49 +332,16 @@ impl Display for IdRangeList {
             return write!(f, "");
         }
 
-        let mut cache = CachedTranslation::new(self.indexes[0]);
-
-        let mut rngs = self
-            .indexes
-            .iter()
-            .zip(
+        write!(
+            f,
+            "[{}]",
+            super::fold_into_ranges(
                 self.indexes
                     .iter()
-                    .chain(self.indexes.iter().last())
-                    .skip(1),
+                    .chain(iter::once(&self.indexes[self.indexes.len() - 1])),
+                self.indexes[0]
             )
-            .batching(|it| {
-                if let Some((_, &next)) = it.next() {
-                    let max_pad = cache.max_pad();
-                    let mut new_cache = cache.interpolate(next);
-                    let mergeable = cache.is_mergeable(&new_cache, max_pad);
-
-                    if !mergeable {
-                        let res = cache.to_string();
-                        cache = new_cache;
-                        return Some(res);
-                    }
-
-                    let mut cur_cache = new_cache;
-                    for (_, &next) in it {
-                        new_cache = cur_cache.interpolate(next);
-                        let mergeable = cur_cache.is_mergeable(&new_cache, max_pad);
-
-                        if !mergeable {
-                            let res = format!("{cache}-{cur_cache}");
-                            cache = new_cache;
-                            return Some(res);
-                        } else {
-                            std::mem::swap(&mut cur_cache, &mut new_cache);
-                        }
-                    }
-                    // Should never be reached
-                    None
-                } else {
-                    None
-                }
-            });
-        write!(f, "[{}]", rngs.join(","))
+        )
     }
 }
 

@@ -246,6 +246,45 @@ fn lower_pow10_bound(n: u32) -> (u32, u32) {
     (power, exp)
 }
 
+use itertools::Itertools;
+fn fold_into_ranges<'a>(iter: impl Iterator<Item = &'a u32>, first_rank: u32) -> String {
+    let mut cache = CachedTranslation::new(first_rank);
+
+    let mut rngs = iter.skip(1).batching(|it| {
+        if let Some(&next) = it.next() {
+            let max_pad = cache.max_pad();
+            let mut new_cache = cache.interpolate(next);
+            let mergeable = cache.is_mergeable(&new_cache, max_pad);
+
+            if !mergeable {
+                let res = cache.to_string();
+                cache = new_cache;
+                return Some(res);
+            }
+
+            let mut cur_cache = new_cache;
+            for &next in it {
+                new_cache = cur_cache.interpolate(next);
+                let mergeable = cur_cache.is_mergeable(&new_cache, max_pad);
+
+                if !mergeable {
+                    let res = format!("{cache}-{cur_cache}");
+                    cache = new_cache;
+                    return Some(res);
+                } else {
+                    std::mem::swap(&mut cur_cache, &mut new_cache);
+                }
+            }
+            // Should never be reached
+            None
+        } else {
+            None
+        }
+    });
+
+    rngs.join(",")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
