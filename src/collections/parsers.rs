@@ -1,4 +1,6 @@
 use crate::collections::idset::IdRangeProduct;
+use crate::collections::nodeset::IdSetKind;
+
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
@@ -122,15 +124,21 @@ where
 
             let mut ns = NodeSet::new();
             if ranges.is_empty() {
-                ns.dimnames.entry(dims).or_insert_with(|| None);
-            } else {
-                ns.dimnames
+                ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
+            } else if ranges.len() == 1 {
+                let IdSetKind::Single(id) = ns.dimnames
                     .entry(dims)
-                    .or_insert_with(|| Some(IdSet::new()))
-                    .as_mut()
-                    .unwrap()
-                    .products
-                    .push(IdRangeProduct { ranges });
+                    .or_insert_with(|| IdSetKind::Single(T::new())) else {
+                        panic!("mismatched dimensions")
+                    };
+                id.push(&ranges[0]);
+            } else {
+                let IdSetKind::Multiple(id) = ns.dimnames
+                    .entry(dims)
+                    .or_insert_with(|| IdSetKind::Multiple(IdSet::new())) else {
+                        panic!("mismatched dimensions")
+                    };
+                id.products.push(IdRangeProduct { ranges });
             }
             ns.fold();
             ns
