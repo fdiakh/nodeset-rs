@@ -1,5 +1,6 @@
 use super::parsers;
 use crate::idrange::rank_to_string;
+use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
 use crate::{IdSet, IdSetIter};
 use itertools::Itertools;
@@ -8,7 +9,14 @@ use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T> {
-    pub(crate) dimnames: HashMap<NodeSetDimensions, Option<IdSet<T>>>,
+    pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) enum IdSetKind<T> {
+    None,
+    Single(T),
+    Multiple(IdSet<T>),
 }
 
 impl<T> Default for NodeSet<T> {
@@ -23,20 +31,30 @@ pub struct NodeSetIter<'a, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    dim_iter: std::iter::Peekable<
-        std::collections::hash_map::Iter<'a, NodeSetDimensions, Option<IdSet<T>>>,
-    >,
-    set_iter: Option<IdSetIter<'a, T>>,
+    dim_iter:
+        std::iter::Peekable<std::collections::hash_map::Iter<'a, NodeSetDimensions, IdSetKind<T>>>,
+    set_iter: IdSetIterKind<'a, T>,
+    cache: Option<CachedTranslation>,
+}
+
+enum IdSetIterKind<'a, T>
+where
+    T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
+{
+    None,
+    Single(T::SelfIter<'a>),
+    Multiple(IdSetIter<'a, T>),
 }
 
 impl<'b, T> NodeSetIter<'b, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    fn new(dims: &'b HashMap<NodeSetDimensions, Option<IdSet<T>>>) -> Self {
+    fn new(dims: &'b HashMap<NodeSetDimensions, IdSetKind<T>>) -> Self {
         let mut it = Self {
             dim_iter: dims.iter().peekable(),
-            set_iter: None,
+            set_iter: IdSetIterKind::None,
+            cache: None,
         };
         it.init_dims();
         it
@@ -51,8 +69,12 @@ where
         self.set_iter = self
             .dim_iter
             .peek()
-            .and_then(|dims| dims.1.as_ref())
-            .map(|s| s.iter());
+            .map(|s| match s.1 {
+                IdSetKind::None => IdSetIterKind::None,
+                IdSetKind::Single(s) => IdSetIterKind::Single(s.iter()),
+                IdSetKind::Multiple(s) => IdSetIterKind::Multiple(s.iter()),
+            })
+            .unwrap_or(IdSetIterKind::None);
     }
 }
 
@@ -65,23 +87,36 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let dimnames = &self.dim_iter.peek()?.0.dimnames;
-            let Some(set_iter) = self.set_iter.as_mut() else {
-                self.next_dims();
-                return Some(dimnames.iter().join(""));
-            };
 
-            if let Some(coords) = set_iter.next() {
-                /* println!("next coord"); */
-                return Some(
-                    dimnames
-                        .iter()
-                        .zip(coords.iter())
-                        .map(|(a, b)| format!("{}{}", a, rank_to_string(*b)))
-                        .join(""),
-                );
-            } else {
-                /* println!("next dim"); */
-                self.next_dims();
+            match &mut self.set_iter {
+                IdSetIterKind::None => {
+                    self.next_dims();
+                    return Some(dimnames[0].clone());
+                }
+                IdSetIterKind::Single(set_iter) => {
+                    if let Some(coord) = set_iter.next() {
+                        let cache = self
+                            .cache
+                            .get_or_insert_with(|| CachedTranslation::new(*coord));
+
+                        return Some(format!("{}{}", dimnames[0], cache.interpolate(*coord)));
+                    } else {
+                        self.next_dims();
+                    }
+                }
+                IdSetIterKind::Multiple(set_iter) => {
+                    if let Some(coords) = set_iter.next() {
+                        return Some(
+                            dimnames
+                                .iter()
+                                .zip(coords.iter())
+                                .map(|(a, b)| format!("{}{}", a, rank_to_string(*b)))
+                                .join(""),
+                        );
+                    } else {
+                        self.next_dims();
+                    }
+                }
             }
         }
     }
@@ -100,7 +135,11 @@ where
     pub fn len(&self) -> usize {
         self.dimnames
             .values()
-            .map(|set| set.as_ref().map(|s| s.len()).unwrap_or(1))
+            .map(|set| match set {
+                IdSetKind::None => 1,
+                IdSetKind::Single(set) => set.len(),
+                IdSetKind::Multiple(set) => set.len(),
+            })
             .sum()
     }
 
@@ -109,15 +148,17 @@ where
     }
 
     pub fn iter(&self) -> NodeSetIter<'_, T> {
-        /* println!("{:?}", self.dimnames); */
         NodeSetIter::new(&self.dimnames)
     }
 
     pub fn fold(&mut self) -> &mut Self {
-        /* println!("fold {:?}", self.dimnames); */
-        self.dimnames.values_mut().for_each(|s| {
-            if let Some(s) = s {
-                s.fold();
+        self.dimnames.values_mut().for_each(|s| match s {
+            IdSetKind::None => {}
+            IdSetKind::Single(set) => {
+                set.sort();
+            }
+            IdSetKind::Multiple(set) => {
+                set.fold();
             }
         });
 
@@ -130,32 +171,44 @@ where
                 None => {
                     self.dimnames.insert(dimname.clone(), oset.clone());
                 }
-                Some(set) => {
-                    if let Some(s) = set {
-                        s.extend(oset.as_ref().unwrap())
+                Some(set) => match set {
+                    IdSetKind::None => {}
+                    IdSetKind::Single(set) => {
+                        let  IdSetKind::Single(oset) = oset else {
+                                panic!("Mismatched set kinds");
+                            };
+                        set.push(oset);
                     }
-                }
+                    IdSetKind::Multiple(set) => {
+                        let  IdSetKind::Multiple(oset) = oset else {
+                                panic!("Mismatched set kinds");
+                            };
+                        set.extend(oset);
+                    }
+                },
             };
         }
     }
 
     pub fn difference(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
-        /*    println!("Start intersect"); */
+        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
-            /*    println!("{:?}", dimname); */
             if let Some(oset) = other.dimnames.get(dimname) {
-                /*    println!("Same dims"); */
                 match (set, oset) {
-                    (None, None) => continue,
-                    (Some(set), Some(oset)) => {
+                    (IdSetKind::None, IdSetKind::None) => continue,
+                    (IdSetKind::Single(set), IdSetKind::Single(oset)) => {
+                        let result = T::from_sorted(set.difference(oset));
+                        if !result.is_empty() {
+                            dimnames.insert(dimname.clone(), IdSetKind::Single(result));
+                        }
+                    }
+                    (IdSetKind::Multiple(set), IdSetKind::Multiple(oset)) => {
                         if let Some(nset) = set.difference(oset) {
-                            /*  println!("Intersect"); */
-                            dimnames.insert(dimname.clone(), Some(nset));
+                            dimnames.insert(dimname.clone(), IdSetKind::Multiple(nset));
                         }
                     }
                     _ => {
-                        dimnames.insert(dimname.clone(), set.clone());
+                        panic!("Mismatched set kinds");
                     }
                 }
             } else {
@@ -166,23 +219,28 @@ where
     }
 
     pub fn intersection(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
-        /*    println!("Start intersect"); */
+        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
-            /*    println!("{:?}", dimname); */
             if let Some(oset) = other.dimnames.get(dimname) {
-                /*    println!("Same dims"); */
                 match (set, oset) {
-                    (None, None) => {
-                        dimnames.insert(dimname.clone(), None);
+                    (IdSetKind::None, IdSetKind::None) => continue,
+                    (_, IdSetKind::None) => {
+                        dimnames.insert(dimname.clone(), set.clone());
                     }
-                    (Some(set), Some(oset)) => {
-                        if let Some(nset) = set.intersection(oset) {
-                            /*  println!("Intersect"); */
-                            dimnames.insert(dimname.clone(), Some(nset));
+                    (IdSetKind::Single(set), IdSetKind::Single(oset)) => {
+                        let result = T::from_sorted(set.intersection(oset));
+                        if !result.is_empty() {
+                            dimnames.insert(dimname.clone(), IdSetKind::Single(result));
                         }
                     }
-                    _ => continue,
+                    (IdSetKind::Multiple(set), IdSetKind::Multiple(oset)) => {
+                        if let Some(nset) = set.intersection(oset) {
+                            dimnames.insert(dimname.clone(), IdSetKind::Multiple(nset));
+                        }
+                    }
+                    _ => {
+                        panic!("Mismatched set kinds");
+                    }
                 }
             }
         }
@@ -191,30 +249,35 @@ where
     }
 
     pub fn symmetric_difference(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, Option<IdSet<T>>>::new();
-        /*    println!("Start intersect"); */
+        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
-            /*    println!("{:?}", dimname); */
             if let Some(oset) = other.dimnames.get(dimname) {
-                /*    println!("Same dims"); */
                 match (set, oset) {
-                    (None, None) => continue,
-                    (Some(set), Some(oset)) => {
-                        if let Some(nset) = set.symmetric_difference(oset) {
-                            /*  println!("Intersect"); */
-                            dimnames.insert(dimname.clone(), Some(nset));
+                    (IdSetKind::None, IdSetKind::None) => continue,
+                    (IdSetKind::Single(set), IdSetKind::Single(oset)) => {
+                        let result = T::from_sorted(set.symmetric_difference(oset));
+                        if !result.is_empty() {
+                            dimnames.insert(dimname.clone(), IdSetKind::Single(result));
                         }
                     }
-                    (Some(set), None) => {
-                        dimnames.insert(dimname.clone(), Some(set.clone()));
+                    (IdSetKind::Multiple(set), IdSetKind::Multiple(oset)) => {
+                        if let Some(nset) = set.symmetric_difference(oset) {
+                            dimnames.insert(dimname.clone(), IdSetKind::Multiple(nset));
+                        }
                     }
-                    (None, Some(oset)) => {
-                        dimnames.insert(dimname.clone(), Some(oset.clone()));
+                    _ => {
+                        panic!("Mismatched set kinds");
                     }
                 }
+            } else {
+                dimnames.insert(dimname.clone(), set.clone());
             }
         }
-
+        for (dimname, set) in other.dimnames.iter() {
+            if !self.dimnames.contains_key(dimname) {
+                dimnames.insert(dimname.clone(), set.clone());
+            }
+        }
         NodeSet { dimnames }
     }
 }
@@ -282,12 +345,19 @@ where
             if !first {
                 write!(f, ",")?;
             }
-            if let Some(set) = set {
-                set.fmt_dims(f, &dim.dimnames)
-                    .expect("failed to format string");
-            } else {
-                write!(f, "{}", dim.dimnames[0])?;
+            match set {
+                IdSetKind::None => {
+                    write!(f, "{}", dim.dimnames[0])?;
+                }
+                IdSetKind::Single(set) => {
+                    write!(f, "{}{}", dim.dimnames[0], set)?;
+                }
+                IdSetKind::Multiple(set) => {
+                    set.fmt_dims(f, &dim.dimnames)
+                        .expect("failed to format string");
+                }
             }
+
             first = false;
         }
         Ok(())

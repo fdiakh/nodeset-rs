@@ -9,7 +9,7 @@ pub trait SortedIterator: Iterator {}
 
 /// Interface for a 1-dimensional range of integers
 pub trait IdRange: From<Vec<u32>> + From<u32> {
-    type SelfIter<'a>: Iterator<Item = &'a u32> + Clone
+    type SelfIter<'a>: Iterator<Item = &'a u32> + Clone + fmt::Debug
     where
         Self: 'a;
     type DifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
@@ -146,7 +146,7 @@ pub fn rank_to_string(rank: u32) -> String {
 #[derive(Debug, PartialEq, Eq, Clone)]
 // Optimizes the translation of a rank to a zero-padded id by caching
 // costly intermediate computations
-struct CachedTranslation {
+pub(crate) struct CachedTranslation {
     rank: u32,
     id: u32,
     pad: u32,
@@ -166,7 +166,7 @@ impl CachedTranslation {
 
     // Maps a rank to a zero-padded id and returns it along with cached
     // values
-    fn new(rank: u32) -> Self {
+    pub(crate) fn new(rank: u32) -> Self {
         let mut id = rank;
         let mut pad = 1;
         let mut jump_pad = 10;
@@ -187,7 +187,7 @@ impl CachedTranslation {
 
     // Maps a rank to a zero-padded id using cached values if possible
     // Results are only valid for ranks greater than the rank used to create the cache
-    fn interpolate(&self, new_rank: u32) -> Self {
+    pub(crate) fn interpolate(&self, new_rank: u32) -> Self {
         let jump_rank = self.rank + self.jump_pad - self.id;
         if new_rank < jump_rank {
             return Self {
