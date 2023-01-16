@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct NodeSet<T> {
+pub struct NodeSet<T = crate::IdRangeList> {
     pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
 }
 

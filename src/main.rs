@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
-use ns::{IdRangeList, NodeSet};
+use ns::NodeSet;
 use std::io;
 use std::io::Read;
 
@@ -58,8 +58,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet<IdRangeList>> {
-    let mut nodeset: NodeSet<IdRangeList> = match ns {
+fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet> {
+    let mut nodeset: NodeSet = match ns {
         Some(v) => v.join(" "),
         None => read_stdin()?,
     }
