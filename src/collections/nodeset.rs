@@ -7,6 +7,8 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
 
+
+/// NodeSet stores a nodeset definition.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
     pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
@@ -126,12 +128,14 @@ impl<T> NodeSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
+    /// Creates a new empty NodeSet.
     pub fn new() -> Self {
         NodeSet {
             dimnames: HashMap::new(),
         }
     }
 
+    /// return NodeSet's number of elements.
     pub fn len(&self) -> usize {
         self.dimnames
             .values()
@@ -143,14 +147,19 @@ where
             .sum()
     }
 
+    /// returns true if NodeSet has no element.
     pub fn is_empty(&self) -> bool {
         self.dimnames.is_empty()
     }
 
+    /// Returns a NodeSetIter iterator on the NodeSet
     pub fn iter(&self) -> NodeSetIter<'_, T> {
         NodeSetIter::new(&self.dimnames)
     }
 
+    /// Folds the NodeSet:
+    ///  * `a[1-10,12,13,14]` -> `a[1-10,12-14]`
+    ///  * `a[1,2,3,4]b[2,3,4,5,6]` -> `a[1-4]b[2-6]`
     pub fn fold(&mut self) -> &mut Self {
         self.dimnames.values_mut().for_each(|s| match s {
             IdSetKind::None => {}
@@ -165,6 +174,9 @@ where
         self
     }
 
+    /// Realizes the union between NodeSets self and other that
+    /// should be of the same IdSetKind. This function will panic
+    /// if the NodeSets are of different IdSetKind.
     pub fn extend(&mut self, other: &Self) {
         for (dimname, oset) in other.dimnames.iter() {
             match self.dimnames.get_mut(dimname) {
@@ -190,6 +202,9 @@ where
         }
     }
 
+    /// Computes the difference between the two NodeSets and
+    /// returns a new NodeSet.
+    /// This function will panic if NodeSets are of different IdSetKind
     pub fn difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -218,6 +233,9 @@ where
         NodeSet { dimnames }
     }
 
+    /// Computes the intersection between the two NodeSets (keeping
+    /// nodes that are in both NodeSets) and returns a new NodeSet.
+    /// This function will panic if NodeSets are of different IdSetKind
     pub fn intersection(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -248,6 +266,8 @@ where
         NodeSet { dimnames }
     }
 
+    /// Computes a symmetric difference on the two NodeSets.
+    /// This function will panic if NodeSets are of different IdSetKind
     pub fn symmetric_difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
