@@ -272,7 +272,7 @@ where
     /// Split products into mergeable products by creating products with common
     /// ranges.
     ///
-    /// Prioritize splitting ranges along the firt dimensions to be able
+    /// Prioritize splitting ranges along the first dimensions to be able
     /// to the create largest ranges possible along the last dimensions in the
     /// merging step.
     fn minimal_split(&mut self) {

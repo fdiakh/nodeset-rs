@@ -155,7 +155,7 @@ pub(crate) struct CachedTranslation {
 
 impl CachedTranslation {
     // Returns the maximum padded length of ids that can be merged with this one
-    // in a continguous range
+    // in a contiguous range
     fn max_pad(&self) -> u32 {
         if self.rank != 0 && self.id < self.jump_pad / 10 {
             self.pad
@@ -217,6 +217,7 @@ impl fmt::Display for CachedTranslation {
 }
 
 // Convert a padded id to a rank
+// (423, 4) -> 1533
 fn padded_id_to_rank(id: u32, pad: u32) -> u32 {
     let mut rank: u32 = 0;
 
@@ -228,6 +229,7 @@ fn padded_id_to_rank(id: u32, pad: u32) -> u32 {
 }
 
 // Returns the closest power of 10 that is less than or equal to n and the corresponding exponent
+// 423 -> 100, 2
 // FIXME: Use ilog10 from the standard library once it is stabilized
 fn lower_pow10_bound(n: u32) -> (u32, u32) {
     let mut power: u32 = 1;
