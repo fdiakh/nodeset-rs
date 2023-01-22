@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
-use ns::NodeSet;
+use ns::{NodeSet, Resolver};
 use std::io;
 use std::io::Read;
 
@@ -38,6 +38,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     env_logger::init();
+    Resolver::set_global(Resolver::from_config()?);
 
     let args = Cli::parse();
     match args.command {

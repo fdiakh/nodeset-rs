@@ -539,16 +539,17 @@ where
 
         };
 
-        let mut ns = self.difference(&intersection);
+        let ns = self.difference(&intersection);
         let no = other.difference(&intersection);
 
-        match (&mut ns, no) {
-            (Some(ns), Some(no)) => {
+        match (ns, no) {
+            (Some(mut ns), Some(no)) => {
                 ns.extend(&no);
-                Some(ns.clone())
+                ns.fold();
+                Some(ns)
             }
             (None, Some(no)) => Some(no),
-            (Some(ns), None) => Some(ns.clone()),
+            (Some(ns), None) => Some(ns),
             (_, _) => None,
         }
     }

@@ -1,7 +1,9 @@
-use super::parsers;
+use super::parsers::CustomError;
+use super::parsers::Parser;
 use crate::idrange::rank_to_string;
 use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
+use crate::Resolver;
 use crate::{IdSet, IdSetIter};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -282,8 +284,6 @@ where
     }
 }
 
-use parsers::CustomError;
-
 impl<T> std::str::FromStr for NodeSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -291,13 +291,8 @@ where
     type Err = NodeSetParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parsers::full_expr::<T>(s)
-            .map(|r| r.1)
-            .map_err(|e| match e {
-                nom::Err::Error(e) => NodeSetParseError::from(e),
-                nom::Err::Failure(e) => NodeSetParseError::from(e),
-                _ => panic!("unreachable"),
-            })
+        let resolver = Resolver::get_global();
+        Parser::with_resolver(resolver.as_ref(), None).parse::<T>(s)
     }
 }
 
@@ -364,20 +359,28 @@ where
     }
 }
 
-use thiserror::Error;
-
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug)]
 pub enum NodeSetParseError {
     #[error("invalid integer")]
     ParseIntError(#[from] std::num::ParseIntError),
+    #[error("invalid static configuration file")]
+    StaticConfiguration(#[from] serde_yaml::Error),
+    #[error("invalid configuration file")]
+    DynamicConfiguration(#[from] serde_ini::de::Error),
     #[error("value out of range")]
     OverFlow(#[from] std::num::TryFromIntError),
+    #[error("external command execution failed")]
+    Command(#[from] std::io::Error),
     #[error("inverted range '{0}'")]
     Reverse(String),
     #[error("unable to parse '{0}'")]
     Generic(String),
     #[error("mismatched padding: '{0}'")]
     Padding(String),
+    #[error("Unknown group source: '{0}'")]
+    Source(String),
+    #[error("Unknown group: '{1}' in source: '{0}'")]
+    Group(String, String),
 }
 
 #[cfg(test)]
@@ -421,6 +424,27 @@ mod tests {
             id1.intersection(&id2).fold().to_string(),
             "x[3,5]y[7]z[2-3]"
         );
+
+        let id1: NodeSet<IdRangeList> = "a1 a2".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "b1 b2".parse().unwrap();
+
+        assert!(id1.intersection(&id2).is_empty(),);
+    }
+
+    #[test]
+    fn test_nodeset_symmetric_diff() {
+        let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+
+        assert_eq!(
+            id1.symmetric_difference(&id2).fold().to_string(),
+            "x[1,7,9]y[1-7]z[2-3],x[2,4]y[7]z[2-3],x[3,5]y[1-6]z[2-3]"
+        );
+
+        let id1: NodeSet<IdRangeList> = "a1 b1 a2".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "b1 a2 a3".parse().unwrap();
+
+        assert_eq!(id1.symmetric_difference(&id2).to_string(), "a[1,3]");
     }
 
     #[test]
@@ -461,6 +485,41 @@ mod tests {
         assert_eq!(
             id1.iter().collect::<Vec<_>>(),
             vec!["a1b1", "a1b2", "a2b1", "a2b2",]
+        );
+    }
+
+    #[test]
+    fn test_nodeset_padded() {
+        assert_eq!(
+            "a01 a02 a9 a0 a00 a1 a09 a10"
+                .parse::<NodeSet<IdRangeList>>()
+                .unwrap()
+                .to_string(),
+            "a[0-1,9,00-02,09-10]"
+        );
+
+        assert_eq!(
+            "n[001-999] n[1000]"
+                .parse::<NodeSet<IdRangeList>>()
+                .unwrap()
+                .to_string(),
+            "n[001-999,1000]"
+        );
+
+        assert_eq!(
+            "n[000-999] n[1000] n1001 n0 n1"
+                .parse::<NodeSet<IdRangeList>>()
+                .unwrap()
+                .to_string(),
+            "n[0-1,000-999,1000-1001]"
+        );
+
+        assert_eq!(
+            "n[0000-1000] n[1000-10000] n1001 n1 n00"
+                .parse::<NodeSet<IdRangeList>>()
+                .unwrap()
+                .to_string(),
+            "n[1,00,0000-9999,10000]"
         );
     }
 }

@@ -7,3 +7,5 @@ pub use collections::IdSet;
 pub use collections::NodeSet;
 pub use collections::IdSetIter;
 pub use collections::NodeSetParseError;
+pub use collections::Resolver;
+pub use collections::Parser;
