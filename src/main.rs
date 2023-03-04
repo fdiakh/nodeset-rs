@@ -34,6 +34,15 @@ enum Commands {
         /// Nodeset(s) to count
         nodeset: Option<Vec<String>>,
     },
+    /// Display groups of nodes
+    List {
+        /// List groups from all sources
+        #[arg(short)]
+        all: bool,
+        /// Display nodeset corresponding to each group
+        #[arg(short)]
+        nodeset: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -53,6 +62,52 @@ fn main() -> Result<()> {
         Commands::Count { nodeset } => {
             let nodeset = nodeset_argument(nodeset)?;
             println!("{}", nodeset.len());
+        }
+        Commands::List { all, nodeset } => {
+            let resolver = Resolver::get_global();
+
+            if all {
+                println!(
+                    "{}",
+                    resolver
+                        .list_all_groups()
+                        .iter()
+                        .filter_map(|(source, group)| {
+                            if nodeset {
+                                Some(format!(
+                                    "@{}:{}: {}",
+                                    source,
+                                    group,
+                                    resolver
+                                        .resolve::<ns::IdRangeList>(Some(source), group)
+                                        .ok()?
+                                ))
+                            } else {
+                                Some(format!("@{}:{}", source, group))
+                            }
+                        })
+                        .join("\n")
+                );
+            } else {
+                println!(
+                    "{}",
+                    resolver
+                        .list_groups(None)
+                        .iter()
+                        .filter_map(|g| {
+                            if nodeset {
+                                Some(format!(
+                                    "@{}: {}",
+                                    g,
+                                    resolver.resolve::<ns::IdRangeList>(None, g).ok()?
+                                ))
+                            } else {
+                                Some(format!("@{}", g))
+                            }
+                        })
+                        .join("\n")
+                );
+            }
         }
     }
 

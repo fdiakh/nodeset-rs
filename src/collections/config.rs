@@ -94,8 +94,8 @@ struct DynamicGroupSource {
 }
 
 trait GroupSource: Debug + Send + Sync {
-    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError>;
-    fn list(&self) -> Vec<String>;
+    fn map(&self, group: &str, source: &str) -> Result<Option<String>, NodeSetParseError>;
+    fn list(&self, source: &str) -> Vec<String>;
 }
 
 impl DynamicGroupConfig {
@@ -170,9 +170,10 @@ impl IntoIterator for DynamicGroupConfig {
 }
 
 impl GroupSource for DynamicGroupSource {
-    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError> {
+    fn map(&self, group: &str, source: &str) -> Result<Option<String>, NodeSetParseError> {
         let context = |s: &str| match s {
             "GROUP" => Some(group),
+            "SOURCE" => Some(source),
             _ => None,
         };
         let map = env_with_context_no_errors(&self.map, context).to_string();
@@ -188,8 +189,30 @@ impl GroupSource for DynamicGroupSource {
         Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
     }
 
-    fn list(&self) -> Vec<String> {
-        unimplemented!()
+    fn list(&self, source: &str) -> Vec<String> {
+        let Some(ref list_cmd) = self.list else {
+            return vec![];
+        };
+
+        let context = |s: &str| match s {
+            "SOURCE" => Some(source),
+            _ => None,
+        };
+        let list = env_with_context_no_errors(&list_cmd, context).to_string();
+
+        let output = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(&list)
+            .output()
+            .unwrap();
+
+        if !output.status.success() {
+            panic!("Command '{}' returned non-zero exit code", list);
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
     }
 }
 
@@ -210,11 +233,11 @@ impl IntoIterator for StaticGroupConfig {
 }
 
 impl GroupSource for StaticGroupSource {
-    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError> {
+    fn map(&self, group: &str, _: &str) -> Result<Option<String>, NodeSetParseError> {
         Ok(self.groups.get(group).map(|v| v.into()))
     }
 
-    fn list(&self) -> Vec<String> {
+    fn list(&self, _: &str) -> Vec<String> {
         self.groups.keys().cloned().collect()
     }
 }
@@ -357,9 +380,30 @@ impl Resolver {
                 .sources
                 .get(source)
                 .ok_or_else(|| NodeSetParseError::Source(source.to_owned()))?
-                .map(group)?
+                .map(group, source)?
                 .unwrap_or_default(),
         )
+    }
+
+    pub fn list_groups(&self, source: Option<&str>) -> Vec<String> {
+        let source = source.unwrap_or(self.default_source.as_str());
+
+        self.sources
+            .get(source)
+            .map(|s| s.list(source))
+            .unwrap_or_default()
+    }
+
+    pub fn list_all_groups(&self) -> Vec<(String, String)> {
+        self.sources
+            .iter()
+            .flat_map(|(source, groups)| {
+                groups
+                    .list(source)
+                    .into_iter()
+                    .map(move |g| (source.clone(), g))
+            })
+            .collect()
     }
 
     fn add_sources(
