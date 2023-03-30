@@ -9,8 +9,11 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
 
-
-/// NodeSet stores a nodeset definition.
+/// NodeSet structure stores a nodeset definition
+///
+/// As its internal in memory structure it uses [IdRangeList](crate::IdRangeList) (backed by a Vec structure)
+/// by default but it can also use [IdRangeTree](crate::IdRangeTree) (backed by a BTreeSet structure).
+/// `IdRangeList` seems to be more efficient this is why it is provided by default.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
     pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
@@ -379,26 +382,47 @@ where
     }
 }
 
+
+/// Possible errors that may happen when parsing nodesets and `ns` program's configuration files.
 #[derive(thiserror::Error, Debug)]
 pub enum NodeSetParseError {
+    /// Integer value is not correct.
     #[error("invalid integer")]
     ParseIntError(#[from] std::num::ParseIntError),
+
+    /// Static configuration file is not correct.
     #[error("invalid static configuration file")]
     StaticConfiguration(#[from] serde_yaml::Error),
+
+    /// Dynamic configuration file is not correct.
     #[error("invalid configuration file")]
     DynamicConfiguration(#[from] serde_ini::de::Error),
+
+    /// Value is out of range (should be within `u32` limits).
     #[error("value out of range")]
     OverFlow(#[from] std::num::TryFromIntError),
+
+    /// An error occurred while executing an external command as specified in the dynamic configuration file.
     #[error("external command execution failed")]
     Command(#[from] std::io::Error),
+
+    /// Range is inverted (ie `[9-2]`).
     #[error("inverted range '{0}'")]
     Reverse(String),
+
+    /// Parsing failed.
     #[error("unable to parse '{0}'")]
     Generic(String),
+
+    /// Padding does not correspond (ie `[01-003]`).
     #[error("mismatched padding: '{0}'")]
     Padding(String),
+
+    /// Group source may not be defined
     #[error("Unknown group source: '{0}'")]
     Source(String),
+
+    /// Group is unknown within the specified source.
     #[error("Unknown group: '{1}' in source: '{0}'")]
     Group(String, String),
 }
