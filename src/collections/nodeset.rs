@@ -26,6 +26,12 @@ pub(crate) enum IdSetKind<T> {
     Multiple(IdSet<T>),
 }
 
+impl NodeSet<crate::IdRangeList> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl<T> Default for NodeSet<T> {
     fn default() -> Self {
         Self {
@@ -133,14 +139,6 @@ impl<T> NodeSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    /// Creates a new empty NodeSet.
-    pub fn new() -> Self {
-        NodeSet {
-            dimnames: HashMap::new(),
-        }
-    }
-
-    /// return NodeSet's number of elements.
     pub fn len(&self) -> usize {
         self.dimnames
             .values()

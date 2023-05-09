@@ -135,7 +135,7 @@ impl<'a> Parser<'a> {
                     dims.push(dim, true);
                 }
 
-                let mut ns = NodeSet::new();
+                let mut ns = NodeSet::default();
                 if ranges.is_empty() {
                     ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
                 } else if ranges.len() == 1 {
