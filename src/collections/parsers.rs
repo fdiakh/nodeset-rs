@@ -16,6 +16,10 @@ fn is_component_char(c: char) -> bool {
     char::is_alphabetic(c) || ['-', '_', '.'].contains(&c)
 }
 
+fn is_component_alphanumeric(c: char) -> bool {
+    char::is_alphanumeric(c) || ['-', '_', '.'].contains(&c)
+}
+
 use super::nodeset::NodeSetDimensions;
 use crate::idrange::{IdRange, IdRangeStep};
 use crate::{IdSet, NodeSet, NodeSetParseError};
@@ -193,7 +197,7 @@ impl<'a> Parser<'a> {
     //FIXME: identifiers should not be allowed to start with a - (but components
     //can as long as they are not the first)
     fn group_identifier(i: &str) -> IResult<&str, &str, CustomError<&str>> {
-        take_while1(is_component_char)(i)
+        take_while1(is_component_alphanumeric)(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
