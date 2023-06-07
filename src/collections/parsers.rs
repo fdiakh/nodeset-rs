@@ -4,8 +4,8 @@ use crate::collections::nodeset::IdSetKind;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
-    character::complete::{char, digit1, multispace0, one_of},
-    combinator::{all_consuming, map, map_res, opt, verify},
+    character::complete::{char, digit1, multispace0, one_of, satisfy},
+    combinator::{all_consuming, map, map_res, opt, verify, recognize},
     multi::{fold_many0, many0, separated_list1},
     sequence::{delimited, pair, separated_pair, tuple},
     IResult,
@@ -197,7 +197,12 @@ impl<'a> Parser<'a> {
     //FIXME: identifiers should not be allowed to start with a - (but components
     //can as long as they are not the first)
     fn group_identifier(i: &str) -> IResult<&str, &str, CustomError<&str>> {
-        take_while1(is_component_alphanumeric)(i)
+        recognize(
+            pair(
+                satisfy(|c| char::is_alphabetic(c)),
+                take_while1(is_component_alphanumeric),
+            )
+        )(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
