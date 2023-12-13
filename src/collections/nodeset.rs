@@ -105,8 +105,12 @@ where
                         let cache = self
                             .cache
                             .get_or_insert_with(|| CachedTranslation::new(*coord));
-
-                        return Some(format!("{}{}", dimnames[0], cache.interpolate(*coord)));
+                        let has_suffix = self.dim_iter.peek()?.0.has_suffix;
+                        if has_suffix && dimnames.len() >1 {
+                            return Some(format!("{}{}{}", dimnames[0], cache.interpolate(*coord), dimnames[1]));
+                        } else {
+                            return Some(format!("{}{}", dimnames[0], cache.interpolate(*coord)));
+                        }
                     } else {
                         self.next_dims();
                     }
@@ -368,7 +372,11 @@ where
                     write!(f, "{}", dim.dimnames[0])?;
                 }
                 IdSetKind::Single(set) => {
-                    write!(f, "{}{}", dim.dimnames[0], set)?;
+                    if dim.has_suffix && dim.dimnames.len() > 1 {
+                        write!(f, "{}{}{}", dim.dimnames[0], set, dim.dimnames[1])?;
+                    } else {
+                        write!(f, "{}{}", dim.dimnames[0], set)?;
+                    }
                 }
                 IdSetKind::Multiple(set) => {
                     set.fmt_dims(f, &dim.dimnames)
@@ -457,6 +465,13 @@ mod tests {
             id1.intersection(&id2).to_string(),
             "x[3,5]y[7]z[3],x[3,5]y[7]z[2]"
         );
+    }
+
+    #[test]
+    fn test_nodeset_parse_with_suffix() {
+        let id1: NodeSet<IdRangeList> = "a[1-3]_e".parse().unwrap();
+
+        assert_eq!(id1.to_string(), "a[1-3]_e");
     }
 
     #[test]
