@@ -139,16 +139,20 @@ impl<'a> Parser<'a> {
                 if ranges.is_empty() {
                     ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
                 } else if ranges.len() == 1 {
-                    let IdSetKind::Single(id) = ns.dimnames
-                    .entry(dims)
-                    .or_insert_with(|| IdSetKind::Single(T::new())) else {
+                    let IdSetKind::Single(id) = ns
+                        .dimnames
+                        .entry(dims)
+                        .or_insert_with(|| IdSetKind::Single(T::new()))
+                    else {
                         panic!("mismatched dimensions")
                     };
                     id.push(&ranges[0]);
                 } else {
-                    let IdSetKind::Multiple(id) = ns.dimnames
-                    .entry(dims)
-                    .or_insert_with(|| IdSetKind::Multiple(IdSet::new())) else {
+                    let IdSetKind::Multiple(id) = ns
+                        .dimnames
+                        .entry(dims)
+                        .or_insert_with(|| IdSetKind::Multiple(IdSet::new()))
+                    else {
                         panic!("mismatched dimensions")
                     };
                     id.products.push(IdRangeProduct { ranges });
@@ -173,10 +177,7 @@ impl<'a> Parser<'a> {
                     )),
                     |(source, group)| -> Result<NodeSet<T>, NodeSetParseError> {
                         if let Some(resolver) = self.resolver {
-                            resolver.resolve(
-                                source.or(self.default_source),
-                                group,
-                            )
+                            resolver.resolve(source.or(self.default_source), group)
                         } else {
                             Ok(NodeSet::default())
                         }
@@ -420,7 +421,10 @@ mod tests {
 
     #[test]
     fn test_node_component() {
-        assert_eq!(Parser::node_component("abcd efg").unwrap(), (" efg", "abcd"));
+        assert_eq!(
+            Parser::node_component("abcd efg").unwrap(),
+            (" efg", "abcd")
+        );
         assert!(Parser::node_component(" abcdefg").is_err());
         assert_eq!(
             Parser::node_component("a_b-c.d2efg").unwrap(),

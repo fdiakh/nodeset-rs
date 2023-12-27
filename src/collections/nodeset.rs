@@ -189,15 +189,15 @@ where
                 Some(set) => match set {
                     IdSetKind::None => {}
                     IdSetKind::Single(set) => {
-                        let  IdSetKind::Single(oset) = oset else {
-                                panic!("Mismatched set kinds");
-                            };
+                        let IdSetKind::Single(oset) = oset else {
+                            panic!("Mismatched set kinds");
+                        };
                         set.push(oset);
                     }
                     IdSetKind::Multiple(set) => {
-                        let  IdSetKind::Multiple(oset) = oset else {
-                                panic!("Mismatched set kinds");
-                            };
+                        let IdSetKind::Multiple(oset) = oset else {
+                            panic!("Mismatched set kinds");
+                        };
                         set.extend(oset);
                     }
                 },
@@ -379,7 +379,6 @@ where
         Ok(())
     }
 }
-
 
 /// Possible errors that may happen when parsing nodesets and `ns` program's configuration files.
 #[derive(thiserror::Error, Debug)]
