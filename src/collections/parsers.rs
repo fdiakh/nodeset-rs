@@ -129,10 +129,10 @@ impl<'a> Parser<'a> {
                     }
                     range.sort();
                     ranges.push(range);
-                    dims.push(dim, false);
+                    dims.push(dim);
                 }
                 if let Some(dim) = r.1 {
-                    dims.push(dim, true);
+                    dims.push(dim);
                 }
 
                 let mut ns = NodeSet::default();

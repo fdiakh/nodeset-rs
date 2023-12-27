@@ -99,33 +99,32 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let dimnames = &self.dim_iter.peek()?.0.dimnames;
+            let dim = self.dim_iter.peek()?.0;
 
             match &mut self.set_iter {
                 IdSetIterKind::None => {
                     self.next_dims();
-                    return Some(dimnames[0].clone());
+                    return Some(dim.dimnames[0].clone());
                 }
                 IdSetIterKind::Single(set_iter) => {
                     if let Some(coord) = set_iter.next() {
                         let cache = self
                             .cache
                             .get_or_insert_with(|| CachedTranslation::new(*coord));
-
-                        return Some(format!("{}{}", dimnames[0], cache.interpolate(*coord)));
+                        let mut res = String::new();
+                        dim.fmt_ranges(&mut res, [cache.interpolate(*coord)])
+                            .expect("string format should succeed");
+                        return Some(res);
                     } else {
                         self.next_dims();
                     }
                 }
                 IdSetIterKind::Multiple(set_iter) => {
                     if let Some(coords) = set_iter.next() {
-                        return Some(
-                            dimnames
-                                .iter()
-                                .zip(coords.iter())
-                                .map(|(a, b)| format!("{}{}", a, rank_to_string(*b)))
-                                .join(""),
-                        );
+                        let mut res = String::new();
+                        dim.fmt_ranges(&mut res, coords.iter().map(|c| rank_to_string(*c)))
+                            .expect("string format should succeed");
+                        return Some(res);
                     } else {
                         self.next_dims();
                     }
@@ -327,26 +326,37 @@ impl From<CustomError<&str>> for NodeSetParseError {
 }
 
 /// List of names for each dimension of a NodeSet along with an optional suffix
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
-pub struct NodeSetDimensions {
+#[derive(PartialEq, Eq, Hash, Clone, Default, Debug)]
+pub(crate) struct NodeSetDimensions {
     dimnames: Vec<String>,
-    has_suffix: bool,
 }
 
 impl NodeSetDimensions {
-    /*     fn is_unique(&self) -> bool {
-        return self.dimnames.len() == 1 && self.has_suffix
-    } */
-    pub fn new() -> NodeSetDimensions {
-        NodeSetDimensions {
-            dimnames: Vec::<String>::new(),
-            has_suffix: false,
-        }
+    pub(crate) fn new() -> NodeSetDimensions {
+        Default::default()
     }
-    /*todo: better manage has_suffix, check consistency (single suffix)*/
-    pub fn push(&mut self, d: &str, has_suffix: bool) {
+
+    pub(crate) fn push(&mut self, d: &str) {
         self.dimnames.push(d.into());
-        self.has_suffix = has_suffix;
+    }
+
+    pub(crate) fn fmt_ranges<T>(
+        &self,
+        f: &mut dyn fmt::Write,
+        ranges: impl IntoIterator<Item = T>,
+    ) -> fmt::Result
+    where
+        T: fmt::Display,
+    {
+        write!(
+            f,
+            "{}",
+            self.dimnames
+                .iter()
+                .map(|d| d.to_string())
+                .interleave(ranges.into_iter().map(|r| r.to_string()))
+                .join("")
+        )
     }
 }
 
@@ -366,11 +376,10 @@ where
                     write!(f, "{}", dim.dimnames[0])?;
                 }
                 IdSetKind::Single(set) => {
-                    write!(f, "{}{}", dim.dimnames[0], set)?;
+                    dim.fmt_ranges(f, [set])?;
                 }
                 IdSetKind::Multiple(set) => {
-                    set.fmt_dims(f, &dim.dimnames)
-                        .expect("failed to format string");
+                    set.fmt_dims(f, dim).expect("failed to format string");
                 }
             }
 
@@ -453,6 +462,23 @@ mod tests {
         assert_eq!(
             id1.intersection(&id2).to_string(),
             "x[3,5]y[7]z[3],x[3,5]y[7]z[2]"
+        );
+    }
+
+    #[test]
+    fn test_nodeset_parse_with_suffix() {
+        let id1: NodeSet<IdRangeList> = "a[1-3]_e".parse().unwrap();
+        assert_eq!(id1.to_string(), "a[1-3]_e");
+        assert_eq!(
+            id1.iter().collect::<Vec<_>>(),
+            vec!["a1_e", "a2_e", "a3_e",]
+        );
+
+        let id2: NodeSet<IdRangeList> = "a[10-11]b[2-3]_cd".parse().unwrap();
+        assert_eq!(id2.to_string(), "a[10-11]b[2-3]_cd");
+        assert_eq!(
+            id2.iter().collect::<Vec<_>>(),
+            vec!["a10b2_cd", "a10b3_cd", "a11b2_cd", "a11b3_cd"]
         );
     }
 
