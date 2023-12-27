@@ -3,9 +3,9 @@ use crate::collections::idset::IdRangeProduct;
 use crate::collections::nodeset::IdSetKind;
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{char, digit1, multispace0, one_of, satisfy},
-    combinator::{all_consuming, map, map_res, opt, verify, recognize},
+    bytes::complete::{tag, take_while, take_while1},
+    character::complete::{alpha1, char, digit1, multispace0, one_of},
+    combinator::{all_consuming, map, map_res, opt, recognize, verify},
     multi::{fold_many0, many0, separated_list1},
     sequence::{delimited, pair, separated_pair, tuple},
     IResult,
@@ -194,15 +194,8 @@ impl<'a> Parser<'a> {
         )(i)
     }
 
-    //FIXME: identifiers should not be allowed to start with a - (but components
-    //can as long as they are not the first)
     fn group_identifier(i: &str) -> IResult<&str, &str, CustomError<&str>> {
-        recognize(
-            pair(
-                satisfy(|c| char::is_alphabetic(c)),
-                take_while1(is_component_alphanumeric),
-            )
-        )(i)
+        recognize(pair(alpha1, take_while(is_component_alphanumeric)))(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
@@ -314,6 +307,15 @@ impl<I> FromExternalError<I, NodeSetParseError> for CustomError<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_group_identifier() {
+        assert_eq!(Parser::group_identifier("a").unwrap(), ("", "a"));
+        assert_eq!(Parser::group_identifier("a_b-c").unwrap(), ("", "a_b-c"));
+        assert_eq!(Parser::group_identifier("ab 2").unwrap(), (" 2", "ab"));
+        assert!(Parser::group_identifier("-ab").is_err());
+        assert!(Parser::group_identifier("1ab").is_err());
+    }
 
     #[test]
     fn test_id_range_step() {
