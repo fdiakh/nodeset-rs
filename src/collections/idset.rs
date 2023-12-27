@@ -3,6 +3,8 @@ use itertools::Itertools;
 use log::trace;
 use std::fmt::{self, Debug, Display};
 
+use super::nodeset::NodeSetDimensions;
+
 /// A product of IdRanges over multiple dimensions
 #[derive(Debug, Clone, Eq, PartialEq, Default)]
 pub struct IdRangeProduct<T> {
@@ -123,17 +125,6 @@ where
     fn num_axis(&self) -> usize {
         self.ranges.len()
     }
-
-    fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &[String]) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            dims.iter()
-                .map(|d| d.to_string())
-                .interleave(self.ranges.iter().map(|s| s.to_string()))
-                .join("")
-        )
-    }
 }
 
 impl<T> Display for IdRangeProduct<T>
@@ -189,13 +180,14 @@ impl<T> IdSet<T>
 where
     T: IdRange + PartialEq + Clone + Display + Debug,
 {
-    pub fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &[String]) -> fmt::Result {
+    pub(crate) fn fmt_dims(&self, f: &mut fmt::Formatter, dims: &NodeSetDimensions) -> fmt::Result {
         let mut first = true;
         for p in &self.products {
             if !first {
                 write!(f, ",")?;
             }
-            p.fmt_dims(f, dims).expect("failed to format string");
+            dims.fmt_ranges(f, &p.ranges)?;
+
             first = false;
         }
         Ok(())
@@ -535,8 +527,7 @@ where
         let Some(intersection) = intersection else {
             let mut result = self.products.clone();
             result.extend(other.products.iter().cloned());
-            return Some(IdSet { products: result })
-
+            return Some(IdSet { products: result });
         };
 
         let ns = self.difference(&intersection);
