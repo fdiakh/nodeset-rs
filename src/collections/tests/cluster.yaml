@@ -22,3 +22,9 @@ lustre:
     mds: "mds[1-4]"
     oss: "oss[0-15]"
     rbh: "rbh[1-2]"
+
+rack1:
+    hsw: '@roles:storage'
+
+rack2:
+    hsw: '@roles:adm'
