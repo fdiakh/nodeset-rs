@@ -186,7 +186,7 @@ impl GroupSource for DynamicGroupSource {
                 format!("Command '{}' returned non-zero exit code", map),
             )));
         }
-        Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
+        Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
     }
 
     fn list(&self, source: &str) -> Vec<String> {
@@ -211,7 +211,7 @@ impl GroupSource for DynamicGroupSource {
         }
         String::from_utf8_lossy(&output.stdout)
             .lines()
-            .map(|s| s.to_string())
+            .map(|s| s.trim().to_string())
             .collect()
     }
 }
@@ -432,6 +432,13 @@ mod tests {
             parser.parse::<IdRangeList>("@login").unwrap().to_string(),
             "login[1-2]"
         );
+
+        // One test for a "groupset" @rack[1-2] that may expand to
+        // other groups.
+        let ns1 = parser.parse::<IdRangeList>("@rack[1-2]:hsw").unwrap();
+        let ns2 = "mgmt[1-2],oss[0-15],mds[1-4]".parse().unwrap();
+        let ns = ns1.difference(&ns2);
+        assert!(ns.is_empty());
     }
 
     #[test]
