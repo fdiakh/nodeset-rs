@@ -48,7 +48,7 @@ enum Commands {
 fn main() -> Result<()> {
     env_logger::init();
     Resolver::set_global(Resolver::from_config()?);
-
+    use std::io::Write;
     let args = Cli::parse();
     match args.command {
         Commands::Fold { nodeset } => {
@@ -57,7 +57,19 @@ fn main() -> Result<()> {
         }
         Commands::Expand { nodeset, separator } => {
             let nodeset = nodeset_argument(nodeset)?;
-            println!("{}", nodeset.iter().join(&separator));
+            let mut it = nodeset.iter();
+
+            let mut lock = io::stdout().lock();
+
+            if let Some(first) = it.next() {
+                lock.write_all(first.as_bytes())?;
+            }
+            for node in it {
+                lock.write_all(separator.as_bytes())?;
+                lock.write_all(node.as_bytes())?;
+            }
+
+            println!();
         }
         Commands::Count { nodeset } => {
             let nodeset = nodeset_argument(nodeset)?;

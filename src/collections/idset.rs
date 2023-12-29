@@ -26,14 +26,14 @@ where
     type Item = Vec<u32>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut coords = vec![];
+        let mut coords = vec![0; self.ranges.len()];
         let mut refill = false;
 
         if let Some(&coord) = self.iters.last_mut()?.next() {
-            coords.push(coord);
+            coords[self.ranges.len() - 1] = coord;
         } else {
             *self.iters.last_mut().unwrap() = self.ranges.last()?.iter().peekable();
-            coords.push(*self.iters.last_mut()?.next().unwrap());
+            coords[self.ranges.len() - 1] = *self.iters.last_mut()?.next().unwrap();
             refill = true;
         }
 
@@ -43,18 +43,17 @@ where
             }
 
             if let Some(&&coord) = self.iters[i].peek() {
-                coords.push(coord);
+                coords[i] = coord;
                 refill = false
             } else {
                 self.iters[i] = self.ranges[i].iter().peekable();
-                coords.push(**self.iters[i].peek().unwrap());
+                coords[i] = **self.iters[i].peek().unwrap();
             }
         }
 
         if refill {
             None
         } else {
-            coords.reverse();
             Some(coords)
         }
     }
