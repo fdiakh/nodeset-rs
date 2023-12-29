@@ -211,7 +211,12 @@ impl fmt::Display for CachedTranslation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         let pad = self.pad as usize;
         let id = self.id;
-        write!(f, "{id:0>pad$}")
+
+        if id >= self.jump_pad / 10 {
+            write!(f, "{id}")
+        } else {
+            write!(f, "{id:0>pad$}")
+        }
     }
 }
 
