@@ -138,11 +138,6 @@ impl IdRangeStep {
     }
 }
 
-// Displays a rank as a zero-padded string
-pub fn rank_to_string(rank: u32) -> String {
-    CachedTranslation::new(rank).to_string()
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 // Optimizes the translation of a rank to a zero-padded id by caching
 // costly intermediate computations
@@ -162,6 +157,10 @@ impl CachedTranslation {
         } else {
             u32::MAX
         }
+    }
+
+    pub fn padding(&self) -> u32 {
+        self.pad
     }
 
     // Maps a rank to a zero-padded id and returns it along with cached
@@ -290,6 +289,11 @@ fn fold_into_ranges<'a>(iter: impl Iterator<Item = &'a u32>, first_rank: u32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Displays a rank as a zero-padded string
+    fn rank_to_string(rank: u32) -> String {
+        CachedTranslation::new(rank).to_string()
+    }
 
     #[test]
     fn test_rank_ranges() {

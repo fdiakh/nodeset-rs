@@ -1,11 +1,9 @@
 use super::parsers::CustomError;
 use super::parsers::Parser;
-use crate::idrange::rank_to_string;
 use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
 use crate::Resolver;
 use crate::{IdSet, IdSetIter};
-use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -110,10 +108,20 @@ where
                     if let Some(coord) = set_iter.next() {
                         let cache = self
                             .cache
-                            .get_or_insert_with(|| CachedTranslation::new(*coord));
-                        let mut res = String::new();
-                        dim.fmt_ranges(&mut res, [cache.interpolate(*coord)])
+                            .as_ref()
+                            .map(|c| c.interpolate(*coord))
+                            .unwrap_or_else(|| CachedTranslation::new(*coord));
+
+                        let mut res = String::with_capacity(
+                            dim.dimnames.iter().map(|s| s.len()).sum::<usize>()
+                                + cache.padding() as usize
+                                + 1,
+                        );
+
+                        dim.fmt_ranges(&mut res, [&cache])
                             .expect("string format should succeed");
+
+                        self.cache = Some(cache);
                         return Some(res);
                     } else {
                         self.next_dims();
@@ -122,7 +130,7 @@ where
                 IdSetIterKind::Multiple(set_iter) => {
                     if let Some(coords) = set_iter.next() {
                         let mut res = String::new();
-                        dim.fmt_ranges(&mut res, coords.iter().map(|c| rank_to_string(*c)))
+                        dim.fmt_ranges(&mut res, coords.iter().map(|c| CachedTranslation::new(*c)))
                             .expect("string format should succeed");
                         return Some(res);
                     } else {
@@ -348,15 +356,21 @@ impl NodeSetDimensions {
     where
         T: fmt::Display,
     {
-        write!(
-            f,
-            "{}",
-            self.dimnames
-                .iter()
-                .map(|d| d.to_string())
-                .interleave(ranges.into_iter().map(|r| r.to_string()))
-                .join("")
-        )
+        let mut dimnames = self.dimnames.iter();
+        for r in ranges.into_iter() {
+            f.write_str(
+                dimnames
+                    .next()
+                    .expect("should be at least as many names as ranges"),
+            )?;
+            write!(f, "{}", r)?;
+        }
+
+        if let Some(suffix) = dimnames.next() {
+            f.write_str(suffix)?;
+        }
+
+        Ok(())
     }
 }
 
