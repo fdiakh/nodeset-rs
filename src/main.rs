@@ -98,6 +98,7 @@ fn main() -> Result<()> {
                                 Some(format!("@{}:{}", source, group))
                             }
                         })
+                        .sorted()
                         .join("\n")
                 );
             } else {
@@ -117,6 +118,7 @@ fn main() -> Result<()> {
                                 Some(format!("@{}", g))
                             }
                         })
+                        .sorted()
                         .join("\n")
                 );
             }
