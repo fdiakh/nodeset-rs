@@ -38,26 +38,13 @@ impl<'a> Parser<'a> {
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        // A nodeset should only begin with '@' or an alphabetic character
-        // An empty nodeset is ok.
-        match i.chars().next() {
-            Some(c) => {
-                if c.is_alphabetic() || c == '@' {
-                    all_consuming(|i| self.expr(i))(i)
-                        .map(|r| r.1)
-                        .map_err(|e| match e {
-                            nom::Err::Error(e) => NodeSetParseError::from(e),
-                            nom::Err::Failure(e) => NodeSetParseError::from(e),
-                            _ => panic!("unreachable"),
-                        })
-                } else {
-                    Err(NodeSetParseError::Generic(format!(
-                        "{i}: first character must be alphabetic"
-                    )))
-                }
-            }
-            None => Ok(NodeSet::default()),
-        }
+        all_consuming(|i| self.expr(i))(i)
+            .map(|r| r.1)
+            .map_err(|e| match e {
+                nom::Err::Error(e) => NodeSetParseError::from(e),
+                nom::Err::Failure(e) => NodeSetParseError::from(e),
+                _ => panic!("unreachable"),
+            })
     }
 
     fn expr<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
@@ -126,7 +113,13 @@ impl<'a> Parser<'a> {
                     )),
                     opt(Self::node_component),
                 ),
-                |r| !r.0.is_empty() || r.1.is_some(),
+                |r| {
+                    let first_component = r.0.first().map(|first| first.0).or(r.1);
+                    first_component
+                        .and_then(|s| s.chars().next())
+                        .map(|c| c.is_alphabetic())
+                        .unwrap_or(false)
+                },
             ),
             |r| -> Result<NodeSet<T>, NodeSetParseError> {
                 let mut dims = NodeSetDimensions::new();
@@ -172,27 +165,6 @@ impl<'a> Parser<'a> {
         )(i)
     }
 
-    // Resolves all components of `group` and adds the resulting nodesets
-    // to ns which is returned to the caller
-    fn extend_nodeset_from_group<T>(
-        self,
-        resolver: &Resolver,
-        sourcestr: Option<&str>,
-        group: &NodeSet<T>,
-        mut ns: NodeSet<T>,
-    ) -> NodeSet<T>
-    where
-        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
-    {
-        for g in group.iter() {
-            let groupstr = g.as_str();
-            if let Ok(nodeset) = resolver.resolve(sourcestr, groupstr) {
-                ns.extend(&nodeset);
-            }
-        }
-        ns
-    }
-
     fn group<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -201,45 +173,40 @@ impl<'a> Parser<'a> {
             pair(
                 char('@'),
                 cut(map_res(
+                    // Match either 'sources:groups' or 'groups'
+                    // Both sources and groups can be sets i.e: @source[1-4]:group[1,5]
                     alt((
                         Self::group_with_source,
-                        map(Self::group_identifier, |s: NodeSet<T>| (None, s)),
+                        map(Self::nodeset, |s: NodeSet<T>| (None, s)),
                     )),
-                    // source is an Option<NodeSet<T>> and group is a NodeSet<T>
-                    // We want to expand those nodesets to get all the components.
-                    // As each nodeset here may also be a group, we have to resolve
-                    // each of them.
-                    |(source, group)| -> Result<NodeSet<T>, NodeSetParseError> {
-                        if let Some(resolver) = self.resolver {
-                            let mut ns: NodeSet<T> = NodeSet::default();
-                            if let Some(sourcegroup) = source {
-                                // for each source get all components of each group
-                                for s in sourcegroup.iter() {
-                                    let sourcestr = s.as_str();
-                                    ns = self.extend_nodeset_from_group(
-                                        resolver,
-                                        Some(sourcestr),
-                                        &group,
-                                        ns,
-                                    );
+                    |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
+                        let mut ns = NodeSet::default();
+
+                        let Some(resolver) = self.resolver else {
+                            return Ok(ns);
+                        };
+
+                        // Iterate over the sources or use an iterator
+                        // which yields the default source once
+                        for source in sources
+                            .as_ref()
+                            .map(|sources| -> Box<dyn Iterator<Item = Option<String>>> {
+                                Box::new(sources.iter().map(Some))
+                            })
+                            .unwrap_or_else(|| -> Box<dyn Iterator<Item = Option<String>>> {
+                                Box::new(std::iter::once(
+                                    self.default_source.map(|s| s.to_string()),
+                                ))
+                            })
+                        {
+                            for group in groups.iter() {
+                                if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group) {
+                                    ns.extend(&nodeset);
                                 }
-                            } else {
-                                // source is None (it has not been explicitly
-                                // written in the nodeset definition) so we are
-                                // using the default one (if any) to resolve
-                                // the group to get each component of it.
-                                ns = self.extend_nodeset_from_group(
-                                    resolver,
-                                    self.default_source,
-                                    &group,
-                                    ns,
-                                );
                             }
-                            ns.fold();
-                            Ok(ns)
-                        } else {
-                            Ok(NodeSet::default())
                         }
+
+                        Ok(ns)
                     },
                 )),
             ),
@@ -259,18 +226,9 @@ impl<'a> Parser<'a> {
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         map(
-            separated_pair(Self::group_identifier, char(':'), Self::group_identifier),
+            separated_pair(Self::nodeset, char(':'), Self::nodeset),
             |r| (Some(r.0), r.1),
         )(i)
-    }
-
-    // group identifiers can be noted as nodesets:
-    // @racks[2,4] or @racks:rack[3-4] for instance
-    fn group_identifier<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
-    where
-        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
-    {
-        map(Self::nodeset, |r| r)(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
@@ -382,22 +340,6 @@ impl<I> FromExternalError<I, NodeSetParseError> for CustomError<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_group_identifier() {
-        let nodeset_a: NodeSet = "a".parse().unwrap();
-        let nodeset_abc: NodeSet = "a_b-c".parse().unwrap();
-        let nodeset_ab: NodeSet = "ab".parse().unwrap();
-        assert_eq!(Parser::group_identifier("a").unwrap(), ("", nodeset_a));
-        assert_eq!(
-            Parser::group_identifier("a_b-c").unwrap(),
-            ("", nodeset_abc)
-        );
-        assert_eq!(
-            Parser::group_identifier("ab 2").unwrap(),
-            (" 2", nodeset_ab)
-        );
-    }
 
     #[test]
     fn test_nodeset_first_letter() {
