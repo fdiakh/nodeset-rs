@@ -403,22 +403,34 @@ where
     }
 }
 
-/// Possible errors that may happen when parsing nodesets and `ns` program's configuration files.
+/// Errors that may happen when parsing configuration files
+#[derive(thiserror::Error, Debug)]
+pub enum ConfigurationError {
+    /// A YAML configuration file cannot be parsed
+    #[error("invalid yaml file")]
+    InvalidYamlFile(#[from] serde_yaml::Error),
+
+    /// An INI configuration file cannot be parsed
+    #[error("invalid ini file")]
+    InvalidIniFile(#[from] ini::Error),
+
+    /// A property is missing in the configuration file
+    #[error("missing ini property: {0}")]
+    MissingProperty(String),
+
+    /// An unexpected property was found in the configuration file
+    #[error("unexpected ini property: {0}")]
+    UnexpectedProperty(String),
+}
+
+/// Errors that may happen when parsing nodesets
 #[derive(thiserror::Error, Debug)]
 pub enum NodeSetParseError {
-    /// Integer value is not correct.
+    /// An error occured while parsing an integer.
     #[error("invalid integer")]
     ParseIntError(#[from] std::num::ParseIntError),
 
-    /// Static configuration file is not correct.
-    #[error("invalid static configuration file")]
-    StaticConfiguration(#[from] serde_yaml::Error),
-
-    /// Dynamic configuration file is not correct.
-    #[error("invalid configuration file")]
-    DynamicConfiguration(#[from] serde_ini::de::Error),
-
-    /// Value is out of range (should be within `u32` limits).
+    /// An index is out of range.
     #[error("value out of range")]
     OverFlow(#[from] std::num::TryFromIntError),
 
@@ -426,23 +438,23 @@ pub enum NodeSetParseError {
     #[error("external command execution failed")]
     Command(#[from] std::io::Error),
 
-    /// Range is inverted (ie `[9-2]`).
+    /// A range is inverted (ie `[9-2]`).
     #[error("inverted range '{0}'")]
     Reverse(String),
 
-    /// Parsing failed.
+    /// A parsing error which does not fit in any other category.
     #[error("unable to parse '{0}'")]
     Generic(String),
 
-    /// Padding does not correspond (ie `[01-003]`).
+    /// Padding sizes at both ends of a range do not match (ie `[01-003]`).
     #[error("mismatched padding: '{0}'")]
     Padding(String),
 
-    /// Group source may not be defined
+    /// A reference was made to a group source that does not exist.
     #[error("Unknown group source: '{0}'")]
     Source(String),
 
-    /// Group is unknown within the specified source.
+    /// A reference was made to a group that does not exist in the specified source.
     #[error("Unknown group: '{1}' in source: '{0}'")]
     Group(String, String),
 }

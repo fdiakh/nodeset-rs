@@ -1,7 +1,9 @@
+use super::nodeset::ConfigurationError;
 use super::parsers::Parser;
 use super::NodeSet;
 use crate::idrange::IdRange;
 use crate::NodeSetParseError;
+use ini::Properties;
 use serde::Deserialize;
 use shellexpand::env_with_context_no_errors;
 use std::collections::HashMap;
@@ -27,7 +29,7 @@ struct StaticGroupSource {
     groups: HashMap<String, SingleOrVec>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Default)]
 struct ResolverConfig {
     default: Option<String>,
     confdir: Option<String>,
@@ -78,15 +80,13 @@ impl ResolverConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Debug, Default)]
 struct DynamicGroupConfig {
-    #[serde(rename = "Main")]
     config: Option<ResolverConfig>,
-    #[serde(flatten)]
     groups: HashMap<String, DynamicGroupSource>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug)]
 struct DynamicGroupSource {
     map: String,
     all: Option<String>,
@@ -98,9 +98,70 @@ trait GroupSource: Debug + Send + Sync {
     fn list(&self, source: &str) -> Vec<String>;
 }
 
+impl TryFrom<&Properties> for ResolverConfig {
+    type Error = ConfigurationError;
+
+    fn try_from(props: &Properties) -> Result<Self, Self::Error> {
+        let mut res = Self::default();
+
+        for (k, v) in props.iter() {
+            match k {
+                "default" => {
+                    res.default = Some(v.to_string());
+                }
+                "confdir" => {
+                    res.confdir = Some(v.to_string());
+                }
+                "autodir" => {
+                    res.autodir = Some(v.to_string());
+                }
+                _ => {
+                    return Err(ConfigurationError::UnexpectedProperty(k.to_string()));
+                }
+            }
+        }
+
+        Ok(res)
+    }
+}
+
+impl TryFrom<&Properties> for DynamicGroupSource {
+    type Error = ConfigurationError;
+
+    fn try_from(props: &Properties) -> Result<Self, Self::Error> {
+        let map = props
+            .get("map")
+            .ok_or_else(|| ConfigurationError::MissingProperty("map".to_string()))?
+            .to_string();
+        let all = props.get("all").map(|s| s.to_string());
+        let list = props.get("list").map(|s| s.to_string());
+
+        Ok(Self { map, all, list })
+    }
+}
+
 impl DynamicGroupConfig {
-    fn from_reader(reader: impl std::io::Read) -> Result<Self, NodeSetParseError> {
-        let config: Self = serde_ini::from_read(reader)?;
+    fn from_reader(mut reader: impl std::io::Read) -> Result<Self, ConfigurationError> {
+        use ini::Ini;
+
+        let parser = Ini::read_from(&mut reader)?;
+        let mut config = DynamicGroupConfig::default();
+        for (sec, prop) in parser.iter() {
+            match sec {
+                Some("Main") => {
+                    config.config = Some(prop.try_into()?);
+                }
+                Some(group) => {
+                    config.groups.insert(group.to_string(), prop.try_into()?);
+                }
+                None => {
+                    if let Some(key) = prop.iter().next().map(|(k, _)| k) {
+                        return Err(ConfigurationError::UnexpectedProperty(key.to_string()));
+                    }
+                }
+            }
+        }
+
         Ok(config)
     }
 
@@ -118,7 +179,7 @@ impl DynamicGroupConfig {
             .unwrap_or_default()
     }
 
-    fn set_cfgdir(&mut self, cfgdir: &str) -> Result<(), NodeSetParseError> {
+    fn set_cfgdir(&mut self, cfgdir: &str) -> Result<(), ConfigurationError> {
         let context = |s: &str| match s {
             "CFGDIR" => Some(cfgdir),
             _ => None,
@@ -186,7 +247,9 @@ impl GroupSource for DynamicGroupSource {
                 format!("Command '{}' returned non-zero exit code", map),
             )));
         }
-        Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+        Ok(Some(
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        ))
     }
 
     fn list(&self, source: &str) -> Vec<String> {
@@ -217,7 +280,7 @@ impl GroupSource for DynamicGroupSource {
 }
 
 impl StaticGroupConfig {
-    fn from_reader(reader: impl std::io::Read) -> Result<Self, NodeSetParseError> {
+    fn from_reader(reader: impl std::io::Read) -> Result<Self, ConfigurationError> {
         let config: Self = serde_yaml::from_reader(reader)?;
         Ok(config)
     }
@@ -309,7 +372,7 @@ fn find_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
 }
 
 impl Resolver {
-    pub fn from_config() -> Result<Self, NodeSetParseError> {
+    pub fn from_config() -> Result<Self, ConfigurationError> {
         let mut resolver = Resolver::default();
         let mut groups = DynamicGroupConfig::default();
 
