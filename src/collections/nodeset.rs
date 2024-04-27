@@ -493,7 +493,7 @@ pub enum ConfigurationError {
 /// Errors that may happen when parsing nodesets
 #[derive(thiserror::Error, Debug)]
 pub enum NodeSetParseError {
-    /// An error occured while parsing an integer.
+    /// An error occurred while parsing an integer.
     #[error("invalid integer")]
     ParseIntError(#[from] std::num::ParseIntError),
 
