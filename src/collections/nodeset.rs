@@ -7,11 +7,17 @@ use crate::{IdSet, IdSetIter};
 use std::collections::HashMap;
 use std::fmt;
 
-/// NodeSet structure stores a nodeset definition
+/// A NodeSet is an unordered collection of nodes indexed in one or more
+/// dimensions.
 ///
-/// As its internal in memory structure it uses [IdRangeList](crate::IdRangeList) (backed by a Vec structure)
-/// by default but it can also use [IdRangeTree](crate::IdRangeTree) (backed by a BTreeSet structure).
-/// `IdRangeList` seems to be more efficient this is why it is provided by default.
+/// Two implementations are provided:
+/// * `NodeSet<IdRangeList>` which stores node indices in Vecs
+/// * `NodeSet<IdRangeTree>` which stores node indices in BTrees
+///
+/// By default `IdRangeList` are used as they are faster to build for one shot
+/// operations which are the most common, especially when using the CLI.
+/// However, if a large NodeSet is built incrementally `IdRangeTree` may more
+/// efficient especially for one-dimensional NodeSets.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
     pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
@@ -184,9 +190,6 @@ where
         self
     }
 
-    /// Realizes the union between NodeSets self and other that
-    /// should be of the same IdSetKind. This function will panic
-    /// if the NodeSets are of different IdSetKind.
     pub fn extend(&mut self, other: &Self) {
         for (dimname, oset) in other.dimnames.iter() {
             match self.dimnames.get_mut(dimname) {
@@ -214,7 +217,7 @@ where
 
     /// Computes the difference between the two NodeSets and
     /// returns a new NodeSet.
-    /// This function will panic if NodeSets are of different IdSetKind
+
     pub fn difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -245,7 +248,7 @@ where
 
     /// Computes the intersection between the two NodeSets (keeping
     /// nodes that are in both NodeSets) and returns a new NodeSet.
-    /// This function will panic if NodeSets are of different IdSetKind
+
     pub fn intersection(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
