@@ -4,8 +4,8 @@ use crate::collections::nodeset::IdSetKind;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
-    character::complete::{char, digit1, multispace0, one_of},
-    combinator::{all_consuming, map, map_res, opt, verify},
+    character::complete::{char, digit1, multispace0, multispace1, one_of},
+    combinator::{all_consuming, map, map_res, opt, value, verify},
     multi::{fold_many0, many0, separated_list1},
     sequence::{delimited, pair, separated_pair, tuple},
     IResult,
@@ -51,27 +51,50 @@ impl<'a> Parser<'a> {
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        fold_many0(
-            tuple((opt(Self::op), |i| self.term(i))),
-            NodeSet::<T>::default,
-            |mut ns, t| {
-                match t.0 {
-                    Some(',') | Some('+') | None => {
-                        ns.extend(&t.1);
+        delimited(
+            multispace0,
+            map_res(
+                fold_many0(
+                    tuple((|i| self.term(i), opt(Self::op))),
+                    || (None, None, false),
+                    |acc, t| {
+                        let (ns, op, _) = acc;
+
+                        let Some(mut ns) = ns else {
+                            return (Some(t.0), t.1, false);
+                        };
+
+                        let Some(op) = op else {
+                            return (Some(ns), t.1, true);
+                        };
+
+                        match op {
+                            ',' | '+' | ' ' => {
+                                ns.extend(&t.0);
+                            }
+                            '!' => {
+                                ns = ns.difference(&t.0);
+                            }
+                            '^' => {
+                                ns = ns.symmetric_difference(&t.0);
+                            }
+                            '&' => {
+                                ns = ns.intersection(&t.0);
+                            }
+                            _ => unreachable!(),
+                        }
+                        (Some(ns), t.1, false)
+                    },
+                ),
+                |(ns, _, err)| {
+                    if err {
+                        Err(NodeSetParseError::Generic(i.to_string()))
+                    } else {
+                        Ok(ns.unwrap_or_default())
                     }
-                    Some('!') => {
-                        ns = ns.difference(&t.1);
-                    }
-                    Some('^') => {
-                        ns = ns.symmetric_difference(&t.1);
-                    }
-                    Some('&') => {
-                        ns = ns.intersection(&t.1);
-                    }
-                    _ => unreachable!(),
-                }
-                ns
-            },
+                },
+            ),
+            multispace0,
         )(i)
     }
 
@@ -79,32 +102,53 @@ impl<'a> Parser<'a> {
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        delimited(
-            multispace0,
-            alt((
-                |i| self.group_or_nodeset(i),
-                delimited(char('('), |i| self.expr(i), char(')')),
-            )),
-            multispace0,
-        )(i)
+        alt((
+            |i| self.group_or_nodeset(i),
+            delimited(char('('), |i| self.expr(i), char(')')),
+        ))(i)
     }
 
     fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
-        delimited(multispace0, one_of("+,&!^"), multispace0)(i)
+        alt((
+            delimited(multispace0, one_of("+,&!^"), multispace0),
+            value(' ', multispace1),
+        ))(i)
     }
 
     fn group_or_nodeset<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((Self::nodeset, |i| self.group(i)))(i)
+        alt((Self::nodeset, |i| self.group(i), Self::rangeset))(i)
+    }
+
+    fn rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    where
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
+    {
+        map(
+            separated_list1(tag("!"), Self::id_range_step),
+            |idrs_list: Vec<IdRangeStep>| {
+                let mut ns = NodeSet::default();
+                for idrs in idrs_list {
+                    let mut id = T::new().lazy();
+                    id.push_idrs(&idrs);
+                    let mut dims = NodeSetDimensions::new();
+                    dims.push("");
+                    id.sort();
+                    ns.dimnames.entry(dims).or_insert(IdSetKind::Single(id));
+                }
+                ns.fold();
+                ns
+            },
+        )(i)
     }
 
     fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        map_res(
+        map(
             verify(
                 pair(
                     many0(pair(
@@ -121,7 +165,7 @@ impl<'a> Parser<'a> {
                         .unwrap_or(false)
                 },
             ),
-            |r| -> Result<NodeSet<T>, NodeSetParseError> {
+            |r| {
                 let mut dims = NodeSetDimensions::new();
                 let mut ranges = vec![];
                 for (dim, rng) in r.0.into_iter() {
@@ -141,26 +185,16 @@ impl<'a> Parser<'a> {
                 if ranges.is_empty() {
                     ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
                 } else if ranges.len() == 1 {
-                    let IdSetKind::Single(id) = ns
-                        .dimnames
+                    ns.dimnames
                         .entry(dims)
-                        .or_insert_with(|| IdSetKind::Single(T::new()))
-                    else {
-                        panic!("mismatched dimensions")
-                    };
-                    id.push(&ranges[0]);
+                        .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
                 } else {
-                    let IdSetKind::Multiple(id) = ns
-                        .dimnames
-                        .entry(dims)
-                        .or_insert_with(|| IdSetKind::Multiple(IdSet::new()))
-                    else {
-                        panic!("mismatched dimensions")
-                    };
-                    id.products.push(IdRangeProduct { ranges });
+                    let mut ids = IdSet::new();
+                    ids.products.push(IdRangeProduct { ranges });
+                    ns.dimnames.entry(dims).or_insert(IdSetKind::Multiple(ids));
                 }
                 ns.fold();
-                Ok(ns)
+                ns
             },
         )(i)
     }
@@ -214,10 +248,6 @@ impl<'a> Parser<'a> {
         )(i)
     }
 
-    // Returns a source name that is a nodeset. It can be a simple name but
-    // it can also be a complex nodeset such as: @test[1-2]:hsw for instance
-    // Returns a group name (the part behind the ':') that is also a nodeset
-    // @racks:rack[3-4] for instance or a simple name.
     #[allow(clippy::type_complexity)]
     fn group_with_source<T>(
         i: &str,
@@ -260,7 +290,7 @@ impl<'a> Parser<'a> {
 
     #[allow(clippy::type_complexity)]
     fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, CustomError<&str>> {
-        cut(map_res(pair(digit1,
+        map_res(pair(digit1,
                          opt(tuple((
                                  tag("-"),
                                 digit1,
@@ -300,7 +330,7 @@ impl<'a> Parser<'a> {
 
                             Ok(IdRangeStep{start, end, step, pad: pad.try_into()?})
                         }
-                        ))(i)
+                        )(i)
     }
 
     fn is_padded(s: &str) -> bool {
