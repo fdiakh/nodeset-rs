@@ -2,8 +2,8 @@
 mod collections;
 mod idrange;
 
-pub use collections::IdSet;
-pub use collections::IdSetIter;
+pub(crate) use collections::IdSet;
+pub(crate) use collections::IdSetIter;
 pub use collections::NodeSet;
 pub use collections::NodeSetParseError;
 pub use collections::Parser;
