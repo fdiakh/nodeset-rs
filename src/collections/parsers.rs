@@ -127,18 +127,17 @@ impl<'a> Parser<'a> {
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         map(
-            separated_list1(tag("!"), Self::id_range_step),
+            separated_list1(tag(","), Self::id_range_step),
             |idrs_list: Vec<IdRangeStep>| {
                 let mut ns = NodeSet::default();
+                let mut dims = NodeSetDimensions::new();
+                dims.push("");
+                let mut id = T::new().lazy();
                 for idrs in idrs_list {
-                    let mut id = T::new().lazy();
                     id.push_idrs(&idrs);
-                    let mut dims = NodeSetDimensions::new();
-                    dims.push("");
-                    id.sort();
-                    ns.dimnames.entry(dims).or_insert(IdSetKind::Single(id));
                 }
-
+                id.sort();
+                ns.dimnames.entry(dims).or_insert(IdSetKind::Single(id));
                 ns
             },
         )(i)
@@ -268,7 +267,7 @@ impl<'a> Parser<'a> {
     fn id_range_bracketed(i: &str) -> IResult<&str, Vec<IdRangeStep>, CustomError<&str>> {
         delimited(
             char('['),
-            separated_list1(tag(","), Self::id_range_step),
+            cut(separated_list1(tag(","), Self::id_range_step)),
             char(']'),
         )(i)
     }

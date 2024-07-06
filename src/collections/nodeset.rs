@@ -366,7 +366,11 @@ impl NodeSetDimensions {
                     .next()
                     .expect("should be at least as many names as ranges"),
             )?;
-            write!(f, "{}", r)?;
+            if self.is_rangeset() {
+                write!(f, "{:#}", r)?;
+            } else {
+                write!(f, "{}", r)?;
+            }
         }
 
         if let Some(suffix) = dimnames.next() {
@@ -374,6 +378,10 @@ impl NodeSetDimensions {
         }
 
         Ok(())
+    }
+
+    fn is_rangeset(&self) -> bool {
+        self.dimnames.len() == 1 && self.dimnames[0].is_empty()
     }
 }
 
@@ -486,6 +494,16 @@ mod tests {
         assert_eq!(id1.to_string(), "x[1,3,5,7,9]y[1-7]z3,x[1,3,5,7,9]y[1-7]z2");
         assert_eq!(id2.to_string(), "x[2-5]y7z[2-3]");
         assert_eq!(id1.intersection(&id2).to_string(), "x[3,5]y7z3,x[3,5]y7z2");
+    }
+
+    #[test]
+    fn test_rangeset_parse() {
+        let id1: NodeSet<IdRangeList> = "12,3".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "0-10/2,3".parse().unwrap();
+
+        assert_eq!(id1.to_string(), "3,12");
+        assert_eq!(id2.to_string(), "0,2-4,6,8,10");
+        assert_eq!(id1.intersection(&id2).to_string(), "3");
     }
 
     #[test]
