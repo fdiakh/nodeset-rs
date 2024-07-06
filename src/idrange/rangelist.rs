@@ -248,7 +248,6 @@ impl IdRange for IdRangeList {
 
     fn sort(&mut self) {
         if !self.sorted {
-            /* println!("sort range"); */
             self.indexes.sort_unstable();
             self.indexes.dedup();
             self.sorted = true;
@@ -256,16 +255,13 @@ impl IdRange for IdRangeList {
     }
 
     fn push(&mut self, other: &Self) {
-        /* println!("before: {}", self.sorted); */
         let sorted =
             self.sorted && other.sorted && other.indexes[0] > *self.indexes.last().unwrap_or(&0);
         self.indexes.extend(other.iter());
         if self.sorted && !sorted {
-            /* println!("resort"); */
             self.sorted = false;
             self.sort();
         }
-        /* println!("after: {}", self.sorted); */
     }
 
     fn contains(&self, id: u32) -> bool {

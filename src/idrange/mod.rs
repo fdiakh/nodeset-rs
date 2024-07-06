@@ -88,10 +88,15 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 /// A contiguous range of zero-padded ids
+///
+/// A contiguous range of ids does not necessarily translate to a contiguous
+/// range of ranks
 pub struct IdRangeStep {
     pub start: u32,
     pub end: u32,
     pub step: usize,
+    /// The minimum number of digits in the zero-padded ids: a start of 2 and a
+    /// pad of 3 means that the range starts at 002
     pub pad: u32,
 }
 
@@ -155,8 +160,8 @@ pub(crate) struct CachedTranslation {
 }
 
 impl CachedTranslation {
-    // Returns the maximum padded length of ids that can be merged with this one
-    // in a contiguous range
+    /// Returns the maximum padded length of ids that can be merged with this one
+    /// in a contiguous range
     fn max_pad(&self) -> u32 {
         if self.rank != 0 && self.id < self.jump_pad / 10 {
             self.pad
@@ -169,8 +174,8 @@ impl CachedTranslation {
         self.pad
     }
 
-    // Maps a rank to a zero-padded id and returns it along with cached
-    // values
+    /// Maps a rank to a zero-padded id and returns it along with cached
+    /// values
     pub(crate) fn new(rank: u32) -> Self {
         let mut id = rank;
         let mut pad = 1;
@@ -190,8 +195,8 @@ impl CachedTranslation {
         }
     }
 
-    // Maps a rank to a zero-padded id using cached values if possible
-    // Results are only valid for ranks greater than the rank used to create the cache
+    /// Maps a rank to a zero-padded id using cached values if possible
+    /// Results are only valid for ranks greater than the rank used to create the cache
     pub(crate) fn interpolate(&self, new_rank: u32) -> Self {
         let jump_rank = self.rank + self.jump_pad - self.id;
         if new_rank < jump_rank {
@@ -205,14 +210,14 @@ impl CachedTranslation {
         CachedTranslation::new(new_rank)
     }
 
-    // Returns whether the given rank can be merged with this one while meeting
-    // the max_pad constraint
+    /// Returns whether the given rank can be merged with this one while meeting
+    /// the max_pad constraint
     fn is_mergeable(&self, other: &Self, max_pad: u32) -> bool {
         other.id == self.id + 1 && other.pad <= max_pad
     }
 }
 
-// Display the cached rank as a zero-padded string
+/// Display the cached rank as a zero-padded string
 impl fmt::Display for CachedTranslation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> fmt::Result {
         let pad = self.pad as usize;
@@ -226,8 +231,11 @@ impl fmt::Display for CachedTranslation {
     }
 }
 
-// Convert a padded id to a rank
-// (423, 4) -> 1533
+/// Converts a padded id to a rank
+///
+/// # Examples
+///
+/// assert_eq!(padded_id_to_rank(423, 4), 1533);
 fn padded_id_to_rank(id: u32, pad: u32) -> u32 {
     let mut rank: u32 = 0;
 

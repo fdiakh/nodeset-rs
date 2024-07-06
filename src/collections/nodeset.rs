@@ -163,19 +163,19 @@ where
             .sum()
     }
 
-    /// returns true if NodeSet has no element.
+    /// Returns true if the set contains no element
     pub fn is_empty(&self) -> bool {
         self.dimnames.is_empty()
     }
 
-    /// Returns a NodeSetIter iterator on the NodeSet
+    /// Returns an iterator over all elements of the set
     pub fn iter(&self) -> NodeSetIter<'_, T> {
         NodeSetIter::new(&self.dimnames)
     }
 
-    /// Folds the NodeSet:
-    ///  * `a[1-10,12,13,14]` -> `a[1-10,12-14]`
-    ///  * `a[1,2,3,4]b[2,3,4,5,6]` -> `a[1-4]b[2-6]`
+    /// Folds the internal representation of the set
+    ///
+    ///
     pub fn fold(&mut self) -> &mut Self {
         self.dimnames.values_mut().for_each(|s| match s {
             IdSetKind::None => {}
@@ -215,9 +215,7 @@ where
         }
     }
 
-    /// Computes the difference between the two NodeSets and
-    /// returns a new NodeSet.
-
+    /// Returns a new set containing elements found in `self` but not in `other`
     pub fn difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -246,9 +244,7 @@ where
         NodeSet { dimnames }
     }
 
-    /// Computes the intersection between the two NodeSets (keeping
-    /// nodes that are in both NodeSets) and returns a new NodeSet.
-
+    /// Returns a new set containing elements that are in both `self` and `other`
     pub fn intersection(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -279,8 +275,7 @@ where
         NodeSet { dimnames }
     }
 
-    /// Computes a symmetric difference on the two NodeSets.
-    /// This function will panic if NodeSets are of different IdSetKind
+    /// Returns a new set containing the elements found in either `self`` or `other` but not in both
     pub fn symmetric_difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
