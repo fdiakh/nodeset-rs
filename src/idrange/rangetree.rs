@@ -97,14 +97,16 @@ impl Display for IdRangeTree {
                 .write_str(&CachedTranslation::new(*self.indexes.first().unwrap()).to_string());
         }
 
-        write!(
-            f,
-            "[{}]",
-            super::fold_into_ranges(
-                self.indexes.iter().chain(self.indexes.last()),
-                *self.indexes.first().unwrap()
-            )
-        )
+        let ranges = super::fold_into_ranges(
+            self.indexes.iter().chain(self.indexes.last()),
+            *self.indexes.first().unwrap(),
+        );
+
+        if f.alternate() {
+            write!(f, "{}", ranges)
+        } else {
+            write!(f, "[{}]", ranges)
+        }
     }
 }
 

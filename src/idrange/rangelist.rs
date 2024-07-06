@@ -343,16 +343,18 @@ impl Display for IdRangeList {
             return f.write_str(&CachedTranslation::new(self.indexes[0]).to_string());
         }
 
-        write!(
-            f,
-            "[{}]",
-            super::fold_into_ranges(
-                self.indexes
-                    .iter()
-                    .chain(iter::once(&self.indexes[self.indexes.len() - 1])),
-                self.indexes[0]
-            )
-        )
+        let ranges = super::fold_into_ranges(
+            self.indexes
+                .iter()
+                .chain(iter::once(&self.indexes[self.indexes.len() - 1])),
+            self.indexes[0],
+        );
+
+        if f.alternate() {
+            write!(f, "{}", ranges)
+        } else {
+            write!(f, "[{}]", ranges)
+        }
     }
 }
 
