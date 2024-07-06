@@ -366,7 +366,7 @@ impl NodeSetDimensions {
                     .next()
                     .expect("should be at least as many names as ranges"),
             )?;
-            f.write_str(&r.to_string())?;
+            write!(f, "{}", r)?;
         }
 
         if let Some(suffix) = dimnames.next() {

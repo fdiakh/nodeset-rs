@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                     id.sort();
                     ns.dimnames.entry(dims).or_insert(IdSetKind::Single(id));
                 }
-                ns.fold();
+
                 ns
             },
         )(i)
@@ -193,7 +193,7 @@ impl<'a> Parser<'a> {
                     ids.products.push(IdRangeProduct { ranges });
                     ns.dimnames.entry(dims).or_insert(IdSetKind::Multiple(ids));
                 }
-                ns.fold();
+
                 ns
             },
         )(i)
@@ -334,7 +334,7 @@ impl<'a> Parser<'a> {
     }
 
     fn is_padded(s: &str) -> bool {
-        s.chars().take_while(|c| *c == '0').count() > 0 && s != "0"
+        s.starts_with('0') && s != "0"
     }
 }
 
