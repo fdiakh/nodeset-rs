@@ -5,6 +5,12 @@ pub use rangelist::IdRangeList;
 pub use rangetree::IdRangeTree;
 use std::fmt;
 
+/// Lookup table for powers of 10 that can be represented as u32
+const POW10_LOOKUP: [u32; 10] = [
+    1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000,
+];
+
+/// Iterators implementing this trait guarantee that their elements are sorted are deduplicated
 pub trait SortedIterator: Iterator {}
 
 /// Interface for a 1-dimensional range of integers
@@ -88,22 +94,20 @@ pub struct IdRangeStep {
 }
 
 impl IdRangeStep {
-    // Returns the rank of the first id in the range
-    // Zero-padded ids are sorted such as 1 < 9 < 00 < 09 < 10 < 99 < 000 ...
+    /// Returns the rank of the first id in the range
+    /// Zero-padded ids are sorted such as 1 < 9 < 00 < 09 < 10 < 99 < 000 ...
     fn start_rank(&self) -> u32 {
         padded_id_to_rank(self.start, self.pad)
     }
 
-    // Convert a zero-padded id range into a list of contiguous rank ranges.
-    // While it would be more elegant to return an iterator here but it would
-    // usually only yield very few elements
+    /// Convert a zero-padded id range into a list of contiguous rank ranges.
+    /// While it would be more elegant to return an iterator here but it would
+    /// usually only yield very few elements
     fn rank_ranges(&self) -> Vec<(u32, u32, usize)> {
         // FIXME: overflow handling is not right if we hit the saturating point.
         // We should prevent creation of idranges that are too large
         let mut res = Vec::new();
-        let mut bound = 10u32
-            .checked_pow(u32::max(self.pad, 1))
-            .unwrap_or_else(|| lower_pow10_bound(u32::MAX).0);
+        let mut bound = POW10_LOOKUP[u32::min(9, u32::max(self.pad, 1)) as usize];
 
         let mut start = if self.start < bound {
             let remainder = (bound - 1 - self.start) % self.step as u32;
@@ -139,8 +143,8 @@ impl IdRangeStep {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-// Optimizes the translation of a rank to a zero-padded id by caching
-// costly intermediate computations
+/// Optimizes the translation of a rank to a zero-padded id by caching
+/// costly intermediate computations
 pub(crate) struct CachedTranslation {
     rank: u32,
     id: u32,
@@ -232,28 +236,27 @@ fn padded_id_to_rank(id: u32, pad: u32) -> u32 {
     id + rank
 }
 
-// Returns the closest power of 10 that is less than or equal to n and the corresponding exponent
-// 423 -> 100, 2
-// FIXME: Use ilog10 from the standard library once it is stabilized
+/// Returns the closest power of 10 that is less than or equal to n and the corresponding exponent
+///
+/// # Examples
+///
+/// assert_eq!(lower_pow10_bound(423), (100, 2));
 fn lower_pow10_bound(n: u32) -> (u32, u32) {
-    let mut power: u32 = 1;
-    let mut exp = 0;
-    loop {
-        let Some(new_power) = power.checked_mul(10u32) else {
-            break;
-        };
-        if new_power > n {
-            break;
-        }
-        power = new_power;
-        exp += 1;
+    if n == 0 {
+        return (1, 0);
     }
+
+    let exp = u32::ilog10(n);
+    let power = POW10_LOOKUP[exp as usize];
 
     (power, exp)
 }
 
-use itertools::Itertools;
+/// Converts a list of ranks into a comma-separated string of contiguous ranges
+//  FIXME: this should take a sorted iterator for safety
 fn fold_into_ranges<'a>(iter: impl Iterator<Item = &'a u32>, first_rank: u32) -> String {
+    use itertools::Itertools;
+
     let mut cache = CachedTranslation::new(first_rank);
 
     let mut rngs = iter.skip(1).batching(|it| {
