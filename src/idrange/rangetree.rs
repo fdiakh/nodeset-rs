@@ -1,5 +1,5 @@
 use super::SortedIterator;
-use super::{IdRange, IdRangeStep};
+use super::{CachedTranslation, IdRange, IdRangeStep};
 use std::collections::btree_set;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
@@ -87,7 +87,12 @@ impl IdRange for IdRangeTree {
 impl Display for IdRangeTree {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_empty() {
-            return write!(f, "");
+            return fmt::Result::Ok(());
+        }
+
+        if self.len() == 1 {
+            return f
+                .write_str(&CachedTranslation::new(*self.indexes.first().unwrap()).to_string());
         }
 
         write!(

@@ -366,7 +366,7 @@ impl NodeSetDimensions {
                     .next()
                     .expect("should be at least as many names as ranges"),
             )?;
-            write!(f, "{}", r)?;
+            f.write_str(&r.to_string())?;
         }
 
         if let Some(suffix) = dimnames.next() {
@@ -386,7 +386,7 @@ where
 
         for (dim, set) in &self.dimnames {
             if !first {
-                write!(f, ",")?;
+                f.write_str(",")?;
             }
             match set {
                 IdSetKind::None => {
@@ -481,17 +481,11 @@ mod tests {
     #[test]
     fn test_nodeset_parse() {
         let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
-        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y7z[2,3]".parse().unwrap();
 
-        assert_eq!(
-            id1.to_string(),
-            "x[1,3,5,7,9]y[1-7]z[3],x[1,3,5,7,9]y[1-7]z[2]"
-        );
-        assert_eq!(id2.to_string(), "x[2-5]y[7]z[2-3]");
-        assert_eq!(
-            id1.intersection(&id2).to_string(),
-            "x[3,5]y[7]z[3],x[3,5]y[7]z[2]"
-        );
+        assert_eq!(id1.to_string(), "x[1,3,5,7,9]y[1-7]z3,x[1,3,5,7,9]y[1-7]z2");
+        assert_eq!(id2.to_string(), "x[2-5]y7z[2-3]");
+        assert_eq!(id1.intersection(&id2).to_string(), "x[3,5]y7z3,x[3,5]y7z2");
     }
 
     #[test]
@@ -514,12 +508,9 @@ mod tests {
     #[test]
     fn test_nodeset_intersect() {
         let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
-        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y7z[2,3]".parse().unwrap();
 
-        assert_eq!(
-            id1.intersection(&id2).fold().to_string(),
-            "x[3,5]y[7]z[2-3]"
-        );
+        assert_eq!(id1.intersection(&id2).fold().to_string(), "x[3,5]y7z[2-3]");
 
         let id1: NodeSet<IdRangeList> = "a1 a2".parse().unwrap();
         let id2: NodeSet<IdRangeList> = "b1 b2".parse().unwrap();
@@ -530,11 +521,11 @@ mod tests {
     #[test]
     fn test_nodeset_symmetric_diff() {
         let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
-        let id2: NodeSet<IdRangeList> = "x[2-5]y[7]z[2,3]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "x[2-5]y7z[2,3]".parse().unwrap();
 
         assert_eq!(
             id1.symmetric_difference(&id2).fold().to_string(),
-            "x[1,7,9]y[1-7]z[2-3],x[2,4]y[7]z[2-3],x[3,5]y[1-6]z[2-3]"
+            "x[1,7,9]y[1-7]z[2-3],x[2,4]y7z[2-3],x[3,5]y[1-6]z[2-3]"
         );
 
         let id1: NodeSet<IdRangeList> = "a1 b1 a2".parse().unwrap();
