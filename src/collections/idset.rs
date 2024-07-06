@@ -139,7 +139,7 @@ where
 /// A set of n-dimensional IDs
 ///
 /// Represented internally as a list of products of ranges of ids
-pub struct IdSet<T> {
+pub(crate) struct IdSet<T> {
     pub(crate) products: Vec<IdRangeProduct<T>>,
 }
 
@@ -152,7 +152,7 @@ where
     }
 }
 
-pub struct IdSetIter<'a, T>
+pub(crate) struct IdSetIter<'a, T>
 where
     T: IdRange + Display,
 {
@@ -198,10 +198,6 @@ where
 
     pub fn len(&self) -> usize {
         self.products.iter().map(|x| x.len()).sum()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.products.is_empty()
     }
 
     fn sort(&mut self, skip: usize) {
