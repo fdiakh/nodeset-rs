@@ -326,6 +326,10 @@ impl IdRange for IdRangeList {
         self.sorted = false;
         self
     }
+
+    fn set_lazy(&mut self) {
+        self.sorted = false;
+    }
 }
 use std::iter;
 

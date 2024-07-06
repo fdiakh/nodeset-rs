@@ -82,6 +82,8 @@ impl IdRange for IdRangeTree {
     fn lazy(self) -> Self {
         self
     }
+
+    fn set_lazy(&mut self) {}
 }
 
 impl Display for IdRangeTree {

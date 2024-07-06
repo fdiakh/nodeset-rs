@@ -37,6 +37,8 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
     /// Ensemblist operations will fail while the range is in lazy mode.
     fn lazy(self) -> Self;
 
+    fn set_lazy(&mut self);
+
     /// Restores the range to a non-lazy state. Sorts and deduplicates the range.
     fn sort(&mut self);
 
