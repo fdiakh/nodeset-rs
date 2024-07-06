@@ -131,7 +131,7 @@ where
     T: Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.ranges.iter().join(""))
+        f.write_str(&self.ranges.iter().join(""))
     }
 }
 
@@ -148,7 +148,7 @@ where
     T: Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.products.iter().join(","))
+        f.write_str(&self.products.iter().join(","))
     }
 }
 
@@ -183,7 +183,7 @@ where
         let mut first = true;
         for p in &self.products {
             if !first {
-                write!(f, ",")?;
+                f.write_str(",")?;
             }
             dims.fmt_ranges(f, &p.ranges)?;
 

@@ -1,4 +1,4 @@
-use super::{IdRange, IdRangeStep, SortedIterator};
+use super::{CachedTranslation, IdRange, IdRangeStep, SortedIterator};
 use std::fmt::{self, Debug, Display};
 
 /// A list of indexes for a range
@@ -332,7 +332,11 @@ use std::iter;
 impl Display for IdRangeList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.is_empty() {
-            return write!(f, "");
+            return fmt::Result::Ok(());
+        }
+
+        if self.len() == 1 {
+            return f.write_str(&CachedTranslation::new(self.indexes[0]).to_string());
         }
 
         write!(
