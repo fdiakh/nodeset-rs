@@ -224,29 +224,37 @@ where
     fn full_split(&mut self) {
         trace!("Splitting products into single elements");
 
-        let mut split_products = vec![];
-        for p in &self.products {
+        let mut orig_products = vec![];
+
+        std::mem::swap(&mut orig_products, &mut self.products);
+
+        for p in orig_products.into_iter() {
+            if p.len() == 1 {
+                self.products.push(p);
+                continue;
+            }
+
             let mut first_range = true;
-            let start = split_products.len();
-            for rng in &p.ranges {
+            let start = self.products.len();
+            for rng in p.ranges {
                 if first_range {
                     first_range = false;
                     for n in rng.iter() {
-                        split_products.push(IdRangeProduct {
+                        self.products.push(IdRangeProduct {
                             ranges: vec![T::from(*n)],
                         });
                     }
                 } else {
-                    let count = split_products.len() - start;
+                    let count = self.products.len() - start;
                     for _ in 1..rng.len() {
                         for j in 0..count {
-                            split_products.push(split_products[start + j].clone())
+                            self.products.push(self.products[start + j].clone())
                         }
                     }
 
                     for (i, r) in rng.iter().enumerate() {
                         for sp in
-                            split_products[start + i * count..start + (i + 1) * count].iter_mut()
+                            self.products[start + i * count..start + (i + 1) * count].iter_mut()
                         {
                             sp.ranges.push(T::from(*r));
                         }
@@ -254,7 +262,6 @@ where
                 }
             }
         }
-        self.products = split_products;
 
         self.sort(0);
         self.products.dedup();
@@ -391,14 +398,14 @@ where
     /// Merge products with common ranges.
     fn merge(&mut self) {
         let mut dellst = vec![false; self.products.len()];
-        let mut merge_range = self.products[0].num_axis() - 1;
-
-        // Loop until we don't find anything to merge
+        let mut merge_axis = self.products[0].num_axis();
+        let mut merged = 0;
         // Prioritize merging axis per axis from the last to the first
-        loop {
-            let mut update = false;
+        while merge_axis > 0 {
+            merge_axis -= 1;
             let mut idx1 = 0;
             while idx1 + 1 < self.products.len() {
+                let mut done = false;
                 if dellst[idx1] {
                     idx1 += 1;
                     continue;
@@ -410,60 +417,53 @@ where
                         continue;
                     }
 
-                    let mut num_diffs = 0;
-                    let mut range = 0;
+                    let mut mergeable = true;
                     {
                         let p2 = &self.products[idx2];
                         let p1 = &self.products[idx1];
-                        trace!("try merge p1: {p1} with p2: {p2} on range {merge_range}");
+                        trace!("try merge p1: {p1} with p2: {p2} on axis {merge_axis}");
                         for (i, (r1, r2)) in p1.iter().zip(p2.iter()).enumerate() {
-                            if r1 == r2 {
-                                trace!("Range {i} is common");
-                            } else if num_diffs == 0 {
-                                trace!("Range {i} is the first to differ");
-                                num_diffs += 1;
-                                range = i;
-                                if range != merge_range {
-                                    trace!("Not the range we want at this stage: abort");
-                                    break;
+                            if i != merge_axis && r1 != r2 {
+                                trace!("Axis {i} differs but we need to merge on axis {merge_axis}: abort");
+                                mergeable = false;
+
+                                if i < merge_axis && r2.iter().next() > r1.iter().next() {
+                                    trace!("Other products cannot intersect with us");
+                                    done = true;
                                 }
-                            } else {
-                                trace!("More than one difference: abort");
-                                num_diffs += 1;
                                 break;
                             }
                         }
                     }
-                    if num_diffs < 2 && range == merge_range {
-                        trace!("Merge both products with only differ in range {range}");
-                        update = true;
+                    if mergeable {
+                        trace!("Merge both products which only differ in axis {merge_axis}");
                         let (pp1, pp2) = self.products.split_at_mut(idx2);
-
-                        pp1[idx1].ranges[range].push(&pp2[0].ranges[range]);
+                        pp1[idx1].ranges[merge_axis].set_lazy();
+                        pp1[idx1].ranges[merge_axis].push(&pp2[0].ranges[merge_axis]);
                         dellst[idx2] = true;
+                        merged += 1;
+                    }
+                    if done {
+                        break;
                     }
                     idx2 += 1
                 }
+                self.products[idx1].ranges[merge_axis].sort();
                 idx1 += 1;
             }
-            if !update {
-                if merge_range == 0 {
-                    break;
-                } else {
-                    merge_range -= 1;
-                }
-            } else {
-                merge_range = self.products[0].num_axis() - 1;
-            }
         }
-        self.products = self
-            .products
-            .iter()
-            .cloned()
-            .enumerate()
-            .filter(|(i, _)| !dellst[*i])
-            .map(|(_, p)| p)
-            .collect();
+
+        let mut orig_products = Vec::with_capacity(self.products.len() - merged);
+
+        std::mem::swap(&mut self.products, &mut orig_products);
+
+        self.products.extend(
+            orig_products
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| !dellst[*i])
+                .map(|(_, p)| p),
+        );
     }
 
     pub fn fold(&mut self) -> &mut Self {
