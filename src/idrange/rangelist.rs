@@ -1,9 +1,7 @@
 use super::{CachedTranslation, IdRange, IdRangeStep, SortedIterator};
 use std::fmt::{self, Debug, Display};
 
-/// A list of indexes for a range
-///
-/// It is backed by a `Vec<u32>`.
+/// A 1D set of indexes stored in a Vec
 #[derive(Debug, Clone)]
 pub struct IdRangeList {
     indexes: Vec<u32>,

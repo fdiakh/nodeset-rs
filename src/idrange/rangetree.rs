@@ -110,6 +110,7 @@ impl Display for IdRangeTree {
     }
 }
 
+/// A 1D set of indices stored in a BTreeSet
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct IdRangeTree {
     indexes: BTreeSet<u32>,

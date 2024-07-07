@@ -20,6 +20,7 @@ use super::nodeset::NodeSetDimensions;
 use crate::idrange::{IdRange, IdRangeStep};
 use crate::{IdSet, NodeSet, NodeSetParseError};
 
+/// Parse strings into nodesets
 #[derive(Copy, Clone, Default)]
 pub struct Parser<'a> {
     resolver: Option<&'a Resolver>,
@@ -27,6 +28,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Create a new parser from a resolver
     pub fn with_resolver(resolver: &'a Resolver, default_source: Option<&'a str>) -> Self {
         Self {
             resolver: Some(resolver),

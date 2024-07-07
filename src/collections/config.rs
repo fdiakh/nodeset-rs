@@ -305,6 +305,22 @@ impl GroupSource for StaticGroupSource {
     }
 }
 
+/// An inventory of group sources used to resolve group names to node sets
+///
+/// The FromStr implementation of NodeSet uses the global resolver which can be
+/// setup to read group sources from the default configuration file as follows:
+///
+/// ```rust
+/// use ns::{NodeSet, Resolver};
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     Resolver::set_global(Resolver::from_config()?);
+///
+///     let ns: NodeSet = "@group".parse()?;
+///
+///     Ok(())
+/// }
+/// ```
 #[derive(Debug)]
 pub struct Resolver {
     sources: HashMap<String, Box<dyn GroupSource>>,
@@ -372,6 +388,7 @@ fn find_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
 }
 
 impl Resolver {
+    /// Create a new resolver from the default configuration files
     pub fn from_config() -> Result<Self, ConfigurationError> {
         let mut resolver = Resolver::default();
         let mut groups = DynamicGroupConfig::default();
@@ -418,10 +435,12 @@ impl Resolver {
         Ok(resolver)
     }
 
+    /// Set the global resolver to use for parsing NodeSet using the FromStr trait
     pub fn set_global(resolver: Resolver) {
         *GLOBAL_RESOLVER.write().unwrap() = Some(Arc::new(resolver));
     }
 
+    /// Get the global resolver
     pub fn get_global() -> Arc<Resolver> {
         GLOBAL_RESOLVER
             .read()
@@ -431,6 +450,9 @@ impl Resolver {
             .unwrap_or_else(|| Arc::new(Resolver::default()))
     }
 
+    /// Resolve a group name to a NodeSet
+    ///
+    /// If `source` is None, the default group source of the resolver is used.
     pub fn resolve<T: IdRange + PartialEq + Clone + Display + Debug>(
         &self,
         source: Option<&str>,
@@ -448,6 +470,9 @@ impl Resolver {
         )
     }
 
+    /// List groups from a source
+    ///
+    /// If `source` is None, the default group source of the resolver is used.
     pub fn list_groups(&self, source: Option<&str>) -> Vec<String> {
         let source = source.unwrap_or(self.default_source.as_str());
 
@@ -457,6 +482,9 @@ impl Resolver {
             .unwrap_or_default()
     }
 
+    /// List groups from all sources
+    ///
+    /// Returns a list of tuples with the source name and the group name
     pub fn list_all_groups(&self) -> Vec<(String, String)> {
         self.sources
             .iter()
