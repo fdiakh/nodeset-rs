@@ -36,17 +36,21 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse a string into a nodeset
     pub fn parse<T>(self, i: &str) -> Result<NodeSet<T>, NodeSetParseError>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        all_consuming(|i| self.expr(i))(i)
+        let mut ns = all_consuming(|i| self.expr(i))(i)
             .map(|r| r.1)
             .map_err(|e| match e {
                 nom::Err::Error(e) => NodeSetParseError::from(e),
                 nom::Err::Failure(e) => NodeSetParseError::from(e),
                 _ => panic!("unreachable"),
-            })
+            })?;
+
+        ns.fold();
+        Ok(ns)
     }
 
     fn expr<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
@@ -72,7 +76,7 @@ impl<'a> Parser<'a> {
 
                         match op {
                             ',' | '+' | ' ' => {
-                                ns.extend(&t.0);
+                                ns.extend_from_nodeset(&t.0);
                             }
                             '!' | '-' => {
                                 ns = ns.difference(&t.0);
@@ -132,7 +136,7 @@ impl<'a> Parser<'a> {
         map(
             separated_list1(tag(","), Self::id_range_step),
             |idrs_list: Vec<IdRangeStep>| {
-                let mut ns = NodeSet::default();
+                let mut ns = NodeSet::lazy();
                 let mut dims = NodeSetDimensions::new();
                 dims.push("");
                 let mut id = T::new().lazy();
@@ -183,7 +187,7 @@ impl<'a> Parser<'a> {
                     dims.push(dim);
                 }
 
-                let mut ns = NodeSet::default();
+                let mut ns = NodeSet::lazy();
                 if ranges.is_empty() {
                     ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
                 } else if ranges.len() == 1 {
@@ -216,7 +220,7 @@ impl<'a> Parser<'a> {
                         map(Self::nodeset, |s: NodeSet<T>| (None, s)),
                     )),
                     |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
-                        let mut ns = NodeSet::default();
+                        let mut ns = NodeSet::lazy();
 
                         let Some(resolver) = self.resolver else {
                             return Ok(ns);
@@ -237,7 +241,7 @@ impl<'a> Parser<'a> {
                         {
                             for group in groups.iter() {
                                 if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group) {
-                                    ns.extend(&nodeset);
+                                    ns.extend_from_nodeset(&nodeset);
                                 }
                             }
                         }

@@ -129,14 +129,13 @@ fn main() -> Result<()> {
 }
 
 fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet> {
-    let mut nodeset: NodeSet = match ns {
+    let nodeset: NodeSet = match ns {
         Some(v) => v.join(" "),
         None => read_stdin()?,
     }
     .parse()
     .context("failed to parse nodeset")?;
 
-    nodeset.fold();
     Ok(nodeset)
 }
 
