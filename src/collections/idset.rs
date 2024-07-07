@@ -16,17 +16,54 @@ where
     T: IdRange,
 {
     ranges: &'a Vec<T>,
+    coords: Vec<u32>,
     iters: Vec<std::iter::Peekable<T::SelfIter<'a>>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ProductCoords {
+    Pair([u32; 2]),
+    Triple([u32; 3]),
+    Dynamic(Vec<u32>),
+}
+
+impl ProductCoords {
+    pub(crate) fn iter(&self) -> ProductCoordsIter {
+        ProductCoordsIter {
+            coords: self,
+            idx: 0,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) struct ProductCoordsIter<'a> {
+    coords: &'a ProductCoords,
+    idx: usize,
+}
+
+impl Iterator for ProductCoordsIter<'_> {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let idx = self.idx;
+        self.idx += 1;
+        match self.coords {
+            ProductCoords::Pair(ref c) => c.get(idx).copied(),
+            ProductCoords::Triple(ref c) => c.get(idx).copied(),
+            ProductCoords::Dynamic(ref c) => c.get(idx).copied(),
+        }
+    }
 }
 
 impl<'a, T> Iterator for IdRangeProductIter<'a, T>
 where
     T: IdRange + Clone,
 {
-    type Item = Vec<u32>;
+    type Item = ProductCoords;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut coords = vec![0; self.ranges.len()];
+        let coords = &mut self.coords;
         let mut refill = false;
 
         if let Some(&coord) = self.iters.last_mut()?.next() {
@@ -53,8 +90,12 @@ where
 
         if refill {
             None
+        } else if self.ranges.len() == 2 {
+            Some(ProductCoords::Pair([coords[0], coords[1]]))
+        } else if self.ranges.len() == 3 {
+            Some(ProductCoords::Triple([coords[0], coords[1], coords[2]]))
         } else {
-            Some(coords)
+            Some(ProductCoords::Dynamic(coords.clone()))
         }
     }
 }
@@ -113,6 +154,7 @@ where
     fn iter_products(&'a self) -> IdRangeProductIter<'a, T> {
         IdRangeProductIter {
             ranges: &self.ranges,
+            coords: vec![0; self.ranges.len()],
             iters: self.ranges.iter().map(|r| r.iter().peekable()).collect(),
         }
     }
@@ -164,7 +206,7 @@ impl<'a, T> Iterator for IdSetIter<'a, T>
 where
     T: IdRange + Display + Clone + Debug,
 {
-    type Item = Vec<u32>;
+    type Item = ProductCoords;
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if let Some(coords) = self.range_iter.as_mut()?.next() {
@@ -567,20 +609,25 @@ mod tests {
 
         assert_eq!(
             idpr.iter_products().collect::<Vec<_>>(),
-            Vec::<Vec::<u32>>::new()
+            Vec::<ProductCoords>::new()
         );
 
-        /* 1D */
+        /* 2D */
         idpr = IdRangeProduct::<IdRangeList> {
-            ranges: vec![IdRangeList::from(vec![0, 1])],
+            ranges: vec![IdRangeList::from(vec![0, 1]), IdRangeList::from(vec![2, 3])],
         };
 
         assert_eq!(
             idpr.iter_products().collect::<Vec<_>>(),
-            vec![vec![0], vec![1]]
+            vec![
+                ProductCoords::Pair([0, 2]),
+                ProductCoords::Pair([0, 3]),
+                ProductCoords::Pair([1, 2]),
+                ProductCoords::Pair([1, 3])
+            ]
         );
 
-        /* ND */
+        /* 3D */
         idpr = IdRangeProduct::<IdRangeList> {
             ranges: vec![
                 IdRangeList::from(vec![0, 1]),
@@ -592,14 +639,46 @@ mod tests {
         assert_eq!(
             idpr.iter_products().collect::<Vec<_>>(),
             vec![
-                vec![0, 2, 5],
-                vec![0, 2, 6],
-                vec![0, 3, 5],
-                vec![0, 3, 6],
-                vec![1, 2, 5],
-                vec![1, 2, 6],
-                vec![1, 3, 5],
-                vec![1, 3, 6]
+                ProductCoords::Triple([0, 2, 5]),
+                ProductCoords::Triple([0, 2, 6]),
+                ProductCoords::Triple([0, 3, 5]),
+                ProductCoords::Triple([0, 3, 6]),
+                ProductCoords::Triple([1, 2, 5]),
+                ProductCoords::Triple([1, 2, 6]),
+                ProductCoords::Triple([1, 3, 5]),
+                ProductCoords::Triple([1, 3, 6])
+            ]
+        );
+
+        /* ND */
+        idpr = IdRangeProduct::<IdRangeList> {
+            ranges: vec![
+                IdRangeList::from(vec![0, 1]),
+                IdRangeList::from(vec![2, 3]),
+                IdRangeList::from(vec![5, 6]),
+                IdRangeList::from(vec![7, 8]),
+            ],
+        };
+
+        assert_eq!(
+            idpr.iter_products().collect::<Vec<_>>(),
+            vec![
+                ProductCoords::Dynamic(vec![0, 2, 5, 7]),
+                ProductCoords::Dynamic(vec![0, 2, 5, 8]),
+                ProductCoords::Dynamic(vec![0, 2, 6, 7]),
+                ProductCoords::Dynamic(vec![0, 2, 6, 8]),
+                ProductCoords::Dynamic(vec![0, 3, 5, 7]),
+                ProductCoords::Dynamic(vec![0, 3, 5, 8]),
+                ProductCoords::Dynamic(vec![0, 3, 6, 7]),
+                ProductCoords::Dynamic(vec![0, 3, 6, 8]),
+                ProductCoords::Dynamic(vec![1, 2, 5, 7]),
+                ProductCoords::Dynamic(vec![1, 2, 5, 8]),
+                ProductCoords::Dynamic(vec![1, 2, 6, 7]),
+                ProductCoords::Dynamic(vec![1, 2, 6, 8]),
+                ProductCoords::Dynamic(vec![1, 3, 5, 7]),
+                ProductCoords::Dynamic(vec![1, 3, 5, 8]),
+                ProductCoords::Dynamic(vec![1, 3, 6, 7]),
+                ProductCoords::Dynamic(vec![1, 3, 6, 8])
             ]
         );
     }

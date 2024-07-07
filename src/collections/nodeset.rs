@@ -136,7 +136,7 @@ where
                 IdSetIterKind::Multiple(set_iter) => {
                     if let Some(coords) = set_iter.next() {
                         let mut res = String::new();
-                        dim.fmt_ranges(&mut res, coords.iter().map(|c| CachedTranslation::new(*c)))
+                        dim.fmt_ranges(&mut res, coords.iter().map(CachedTranslation::new))
                             .expect("string format should succeed");
                         return Some(res);
                     } else {
