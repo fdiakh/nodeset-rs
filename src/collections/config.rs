@@ -144,7 +144,7 @@ impl DynamicGroupConfig {
     fn from_reader(mut reader: impl std::io::Read) -> Result<Self, ConfigurationError> {
         use ini::Ini;
 
-        let parser = Ini::read_from(&mut reader)?;
+        let parser = Ini::read_from_noescape(&mut reader)?;
         let mut config = DynamicGroupConfig::default();
         for (sec, prop) in parser.iter() {
             match sec {
