@@ -72,7 +72,7 @@ impl<'a> Parser<'a> {
                             ',' | '+' | ' ' => {
                                 ns.extend(&t.0);
                             }
-                            '!' => {
+                            '!' | '-' => {
                                 ns = ns.difference(&t.0);
                             }
                             '^' => {
@@ -111,6 +111,7 @@ impl<'a> Parser<'a> {
     fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
         alt((
             delimited(multispace0, one_of("+,&!^"), multispace0),
+            delimited(multispace1, one_of("-"), multispace1),
             value(' ', multispace1),
         ))(i)
     }

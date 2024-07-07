@@ -622,4 +622,44 @@ mod tests {
             "n[1,00,0000-9999,10000]"
         );
     }
+
+    #[test]
+    fn test_nodeset_parse_operators() {
+        assert_eq!(
+            "node[0-10] - (node[0-5] + node[7-8], node9 node10)"
+                .parse::<NodeSet>()
+                .unwrap()
+                .to_string(),
+            "node6"
+        );
+        assert_eq!(
+            "node[1-2] ^ node[2-3]"
+                .parse::<NodeSet>()
+                .unwrap()
+                .to_string(),
+            "node[1,3]"
+        );
+
+        assert_eq!(
+            "node[1-2] ! node[2-3]"
+                .parse::<NodeSet>()
+                .unwrap()
+                .to_string(),
+            "node1"
+        );
+    }
+
+    #[test]
+    fn test_nodeset_late_fold() {
+        let mut id1: NodeSet<IdRangeList> = "a[1-2]b[1-2]".parse().unwrap();
+        let id2: NodeSet<IdRangeList> = "a[1-2]b[1-4]".parse().unwrap();
+        let id3: NodeSet<IdRangeList> = "a1b1".parse().unwrap();
+        id1.extend(&id2);
+
+        let mut id4 = id1.difference(&id3);
+
+        id4.extend(&id3);
+        id4.fold();
+        assert_eq!(id4.to_string(), "a[1-2]b[1-4]",);
+    }
 }

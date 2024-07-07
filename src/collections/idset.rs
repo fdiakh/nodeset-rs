@@ -504,10 +504,14 @@ where
         );
     }
 
-    pub fn fold(&mut self) -> &mut Self {
+    fn prepare_sort(&mut self) {
         for p in &mut self.products {
             p.prepare_sort()
         }
+    }
+
+    pub fn fold(&mut self) -> &mut Self {
+        self.prepare_sort();
 
         // This is a heuristic to determine whether to do a full split or a
         // minimal split. The minimal split algorithm is O(n^2) in the number of
@@ -600,8 +604,154 @@ where
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
-    use crate::idrange::IdRangeList;
+    use crate::idrange::{IdRangeList, IdRangeStep};
+
+    #[test]
+    fn test_minimal_split() {
+        env_logger::init();
+        let mut idset = IdSet {
+            products: vec![
+                IdRangeProduct {
+                    ranges: vec![
+                        IdRangeList::from(IdRangeStep {
+                            start: 0,
+                            end: 6,
+                            step: 1,
+                            pad: 0,
+                        }),
+                        IdRangeList::from(IdRangeStep {
+                            start: 0,
+                            end: 6,
+                            step: 1,
+                            pad: 0,
+                        }),
+                    ],
+                },
+                IdRangeProduct {
+                    ranges: vec![
+                        IdRangeList::from(IdRangeStep {
+                            start: 4,
+                            end: 10,
+                            step: 1,
+                            pad: 0,
+                        }),
+                        IdRangeList::from(IdRangeStep {
+                            start: 4,
+                            end: 10,
+                            step: 1,
+                            pad: 0,
+                        }),
+                    ],
+                },
+            ],
+        };
+        idset.prepare_sort();
+        idset.minimal_split();
+        println!("{:?}", idset);
+        assert_eq!(idset.products.len(), 5);
+        assert_eq!(
+            idset.products[0],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 3,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[1],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 3,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[2],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[3],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 7,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[4],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 7,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+    }
+
     #[test]
     fn test_idrangeproduct_iter() {
         /* Empty rangeproduct */
