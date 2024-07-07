@@ -210,6 +210,17 @@ impl From<Vec<u32>> for IdRangeList {
     }
 }
 
+impl From<IdRangeStep> for IdRangeList {
+    fn from(idrs: IdRangeStep) -> IdRangeList {
+        let mut r = IdRangeList {
+            indexes: vec![],
+            sorted: true,
+        };
+        r.push_idrs(&idrs);
+        r
+    }
+}
+
 impl IdRange for IdRangeList {
     type DifferenceIter<'a> = VecDifference<'a, u32>;
     type IntersectionIter<'a> = VecIntersection<'a, u32>;
