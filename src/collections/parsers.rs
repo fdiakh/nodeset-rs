@@ -217,7 +217,7 @@ impl<'a> Parser<'a> {
                     // Both sources and groups can be sets i.e: @source[1-4]:group[1,5]
                     alt((
                         Self::group_with_source,
-                        map(Self::nodeset, |s: NodeSet<T>| (None, s)),
+                        map(Self::nodeset, |s: NodeSet<T>| (None, Some(s))),
                     )),
                     |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
                         let mut ns = NodeSet::lazy();
@@ -239,9 +239,19 @@ impl<'a> Parser<'a> {
                                 ))
                             })
                         {
-                            for group in groups.iter() {
-                                if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group) {
-                                    ns.extend_from_nodeset(&nodeset);
+                            if let Some(groups) = groups.as_ref() {
+                                for group in groups.iter() {
+                                    if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group)
+                                    {
+                                        ns.extend_from_nodeset(&nodeset);
+                                    }
+                                }
+                            } else {
+                                for group in resolver.list_groups(source.as_deref()) {
+                                    if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group)
+                                    {
+                                        ns.extend_from_nodeset(&nodeset);
+                                    }
                                 }
                             }
                         }
@@ -257,14 +267,17 @@ impl<'a> Parser<'a> {
     #[allow(clippy::type_complexity)]
     fn group_with_source<T>(
         i: &str,
-    ) -> IResult<&str, (Option<NodeSet<T>>, NodeSet<T>), CustomError<&str>>
+    ) -> IResult<&str, (Option<NodeSet<T>>, Option<NodeSet<T>>), CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        map(
-            separated_pair(Self::nodeset, char(':'), Self::nodeset),
-            |r| (Some(r.0), r.1),
-        )(i)
+        alt((
+            map(
+                separated_pair(Self::nodeset, char(':'), map(Self::nodeset, Some)),
+                |r| (Some(r.0), r.1),
+            ),
+            map(pair(Self::nodeset, tag(":*")), |r| (Some(r.0), None)),
+        ))(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
