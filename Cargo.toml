@@ -8,9 +8,6 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fnv = "1.0.7"
-hashers = "1.0.1"
-rand = "0.8.5"
 itertools = "0.10.5"
 clap = { version = "4.2.7", features = ["derive"] }
 nom = "7.1.3"
@@ -18,7 +15,6 @@ eyre = "0.6.8"
 log = { version = "0.4.17", features = ["release_max_level_debug"] }
 env_logger = "0.10.0"
 serde = { version = "1.0.162", features = ["derive"] }
-once_cell = "1.17.1"
 thiserror = "1.0.40"
 shellexpand = "3.1.0"
 shlex = "1.1.0"
