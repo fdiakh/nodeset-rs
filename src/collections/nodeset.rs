@@ -7,8 +7,7 @@ use crate::{IdSet, IdSetIter};
 use std::collections::HashMap;
 use std::fmt;
 
-/// A NodeSet is an unordered collection of nodes indexed in one or more
-/// dimensions.
+/// An unordered collection of nodes indexed in one or more dimensions.
 ///
 /// Two implementations are provided:
 /// * `NodeSet<IdRangeList>` which stores node indices in Vecs
