@@ -15,11 +15,12 @@ use std::fmt;
 ///
 /// By default `IdRangeList` are used as they are faster to build for one shot
 /// operations which are the most common, especially when using the CLI.
-/// However, if a large NodeSet is built incrementally `IdRangeTree` may more
-/// efficient especially for one-dimensional NodeSets.
+/// However, if many updates are performed on a large NodeSet `IdRangeTree` may
+/// more efficient especially for one-dimensional NodeSets.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
     pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
+    lazy: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -39,6 +40,7 @@ impl<T> Default for NodeSet<T> {
     fn default() -> Self {
         Self {
             dimnames: HashMap::new(),
+            lazy: false,
         }
     }
 }
@@ -151,6 +153,7 @@ impl<T> NodeSet<T>
 where
     T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
+    /// Returns the number of elements in the set
     pub fn len(&self) -> usize {
         self.dimnames
             .values()
@@ -172,10 +175,13 @@ where
         NodeSetIter::new(&self.dimnames)
     }
 
-    /// Folds the internal representation of the set
+    /// Folds and deduplicates the internal representation of the set
     ///
-    ///
-    pub fn fold(&mut self) -> &mut Self {
+    /// This method is automatically called after each operation unless the
+    /// NodeSet is in lazy mode. When in lazy mode, the NodeSet must be folded
+    /// again before calling len() otherwise nodes may be counted multiple
+    /// times.
+    pub(crate) fn fold(&mut self) -> &mut Self {
         self.dimnames.values_mut().for_each(|s| match s {
             IdSetKind::None => {}
             IdSetKind::Single(set) => {
@@ -186,10 +192,12 @@ where
             }
         });
 
+        self.lazy = false;
         self
     }
 
-    pub fn extend(&mut self, other: &Self) {
+    /// Adds elements from `other` to `self`
+    pub(crate) fn extend_from_nodeset(&mut self, other: &Self) {
         for (dimname, oset) in other.dimnames.iter() {
             match self.dimnames.get_mut(dimname) {
                 None => {
@@ -212,6 +220,18 @@ where
                 },
             };
         }
+    }
+
+    /// Returns a new set containing elements found in `self` and `other`
+    pub fn union(&self, other: &Self) -> Self {
+        let mut res = self.clone();
+
+        res.extend_from_nodeset(other);
+        if !self.lazy {
+            res.fold();
+        }
+
+        res
     }
 
     /// Returns a new set containing elements found in `self` but not in `other`
@@ -240,7 +260,8 @@ where
                 dimnames.insert(dimname.clone(), set.clone());
             }
         }
-        NodeSet { dimnames }
+
+        NodeSet::from_dims(dimnames, self.lazy)
     }
 
     /// Returns a new set containing elements that are in both `self` and `other`
@@ -271,10 +292,10 @@ where
             }
         }
 
-        NodeSet { dimnames }
+        NodeSet::from_dims(dimnames, self.lazy)
     }
 
-    /// Returns a new set containing the elements found in either `self`` or `other` but not in both
+    /// Returns a new set containing the elements found in either `self` or `other` but not in both
     pub fn symmetric_difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.dimnames.iter() {
@@ -305,7 +326,27 @@ where
                 dimnames.insert(dimname.clone(), set.clone());
             }
         }
-        NodeSet { dimnames }
+        NodeSet::from_dims(dimnames, self.lazy)
+    }
+
+    /// Create a NodeSet from a mapping of NodeSetDimensions to IdSets
+    fn from_dims(dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>, lazy: bool) -> Self {
+        let mut res = NodeSet { dimnames, lazy };
+
+        if !lazy {
+            res.fold();
+        }
+
+        res
+    }
+
+    /// Create a new lazy NodeSet which does not automatically folds after each
+    /// operation
+    pub(crate) fn lazy() -> Self {
+        NodeSet {
+            dimnames: HashMap::new(),
+            lazy: true,
+        }
     }
 }
 
@@ -485,9 +526,9 @@ mod tests {
         let id1: NodeSet<IdRangeList> = "x[1-10/2,5]y[1-7]z3,x[1-10/2,5]y[1-7]z2".parse().unwrap();
         let id2: NodeSet<IdRangeList> = "x[2-5]y7z[2,3]".parse().unwrap();
 
-        assert_eq!(id1.to_string(), "x[1,3,5,7,9]y[1-7]z3,x[1,3,5,7,9]y[1-7]z2");
+        assert_eq!(id1.to_string(), "x[1,3,5,7,9]y[1-7]z[2-3]");
         assert_eq!(id2.to_string(), "x[2-5]y7z[2-3]");
-        assert_eq!(id1.intersection(&id2).to_string(), "x[3,5]y7z3,x[3,5]y7z2");
+        assert_eq!(id1.intersection(&id2).to_string(), "x[3,5]y7z[2-3]");
     }
 
     #[test]
@@ -653,11 +694,11 @@ mod tests {
         let mut id1: NodeSet<IdRangeList> = "a[1-2]b[1-2]".parse().unwrap();
         let id2: NodeSet<IdRangeList> = "a[1-2]b[1-4]".parse().unwrap();
         let id3: NodeSet<IdRangeList> = "a1b1".parse().unwrap();
-        id1.extend(&id2);
+        id1.extend_from_nodeset(&id2);
 
         let mut id4 = id1.difference(&id3);
 
-        id4.extend(&id3);
+        id4.extend_from_nodeset(&id3);
         id4.fold();
         assert_eq!(id4.to_string(), "a[1-2]b[1-4]",);
     }
