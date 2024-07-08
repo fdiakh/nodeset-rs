@@ -80,6 +80,7 @@ where
 
     fn next_dims(&mut self) {
         self.dim_iter.next();
+        self.cache = None;
         self.init_dims()
     }
 
@@ -701,5 +702,15 @@ mod tests {
         id4.extend_from_nodeset(&id3);
         id4.fold();
         assert_eq!(id4.to_string(), "a[1-2]b[1-4]",);
+    }
+
+    #[test]
+    fn test_nodeset_multiple_bases() {
+        let id1 = "a1,n[40-41],y[100-101]"
+            .parse::<NodeSet<IdRangeList>>()
+            .unwrap();
+        let mut nodes = id1.iter().collect::<Vec<_>>();
+        nodes.sort();
+        assert_eq!(nodes, vec!["a1", "n40", "n41", "y100", "y101"]);
     }
 }
