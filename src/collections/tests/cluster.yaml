@@ -24,7 +24,8 @@ lustre:
     rbh: "rbh[1-2]"
 
 rack1:
-    hsw: '@roles:storage'
+    hsw: "@roles:storage"
+    ivy: "@roles:compute"
 
 rack2:
-    hsw: '@roles:adm'
+    hsw: "@roles:adm"

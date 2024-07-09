@@ -3,7 +3,7 @@
 use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
-use ns::{NodeSet, Resolver};
+use ns::{IdRangeList, NodeSet, Resolver};
 use std::io;
 use std::io::Read;
 
@@ -78,50 +78,47 @@ fn main() -> Result<()> {
         Commands::List { all, nodeset } => {
             let resolver = Resolver::get_global();
 
-            if all {
-                println!(
-                    "{}",
-                    resolver
-                        .list_all_groups()
-                        .iter()
-                        .filter_map(|(source, group)| {
-                            if nodeset {
-                                Some(format!(
-                                    "@{}:{}: {}",
-                                    source,
-                                    group,
-                                    resolver
-                                        .resolve::<ns::IdRangeList>(Some(source), group)
-                                        .ok()?
-                                ))
-                            } else {
-                                Some(format!("@{}:{}", source, group))
-                            }
-                        })
-                        .sorted()
-                        .join("\n")
-                );
+            let all_groups;
+            let groups;
+
+            let iter: Box<dyn Iterator<Item = (Option<&String>, String)>> = if all {
+                all_groups = resolver.list_all_groups::<IdRangeList>();
+                Box::new(all_groups.iter().flat_map(|(source, groups)| {
+                    let source = if source == resolver.default_source() {
+                        None
+                    } else {
+                        Some(source)
+                    };
+                    groups.iter().map(move |group| (source, group))
+                }))
             } else {
-                println!(
-                    "{}",
-                    resolver
-                        .list_groups(None)
-                        .iter()
-                        .filter_map(|g| {
-                            if nodeset {
-                                Some(format!(
-                                    "@{}: {}",
-                                    g,
-                                    resolver.resolve::<ns::IdRangeList>(None, g).ok()?
-                                ))
-                            } else {
-                                Some(format!("@{}", g))
-                            }
-                        })
-                        .sorted()
-                        .join("\n")
-                );
-            }
+                groups = resolver.list_groups::<IdRangeList>(None);
+                Box::new(groups.iter().map(|g| (None::<&String>, g)))
+            };
+
+            let s = iter
+                .filter_map(|(source, group)| {
+                    let display_source = match source {
+                        Some(s) => format!("{}:", s),
+                        None => "".to_string(),
+                    };
+                    if nodeset {
+                        Some(format!(
+                            "@{}{} {}",
+                            display_source,
+                            group,
+                            resolver
+                                .resolve::<ns::IdRangeList>(source.map(|s| s.as_str()), &group)
+                                .ok()?
+                        ))
+                    } else {
+                        Some(format!("@{}{}", display_source, group))
+                    }
+                })
+                .sorted()
+                .join("\n");
+
+            println!("{}", s);
         }
     }
 
