@@ -23,6 +23,7 @@ struct StaticGroupConfig {
     sources: HashMap<String, StaticGroupSource>,
 }
 
+/// Settings from a static group source configuration file (groups.d/*.yaml)
 #[derive(Deserialize, Debug)]
 struct StaticGroupSource {
     #[serde(flatten)]
@@ -80,22 +81,25 @@ impl ResolverConfig {
     }
 }
 
+/// Settings from the dynamic/external group configuration file (groups.conf)
 #[derive(Debug, Default)]
 struct DynamicGroupConfig {
     config: Option<ResolverConfig>,
     groups: HashMap<String, DynamicGroupSource>,
 }
 
+/// Settings from a dynamic group source (groups.conf.d/<source>.conf)
 #[derive(Debug)]
 struct DynamicGroupSource {
+    name: String,
     map: String,
     all: Option<String>,
     list: Option<String>,
 }
 
 trait GroupSource: Debug + Send + Sync {
-    fn map(&self, group: &str, source: &str) -> Result<Option<String>, NodeSetParseError>;
-    fn list(&self, source: &str) -> Vec<String>;
+    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError>;
+    fn list(&self) -> String;
 }
 
 impl TryFrom<&Properties> for ResolverConfig {
@@ -125,10 +129,8 @@ impl TryFrom<&Properties> for ResolverConfig {
     }
 }
 
-impl TryFrom<&Properties> for DynamicGroupSource {
-    type Error = ConfigurationError;
-
-    fn try_from(props: &Properties) -> Result<Self, Self::Error> {
+impl DynamicGroupSource {
+    fn from_props(props: &Properties, name: String) -> Result<Self, ConfigurationError> {
         let map = props
             .get("map")
             .ok_or_else(|| ConfigurationError::MissingProperty("map".to_string()))?
@@ -136,7 +138,32 @@ impl TryFrom<&Properties> for DynamicGroupSource {
         let all = props.get("all").map(|s| s.to_string());
         let list = props.get("list").map(|s| s.to_string());
 
-        Ok(Self { map, all, list })
+        Ok(Self {
+            name,
+            map,
+            all,
+            list,
+        })
+    }
+
+    fn set_cfgdir(&mut self, cfgdir: &str) -> Result<(), ConfigurationError> {
+        let context = |s: &str| match s {
+            "CFGDIR" => Some(cfgdir),
+            "SOURCE" => Some(self.name.as_str()),
+            _ => None,
+        };
+
+        self.map = env_with_context_no_errors(&self.map, context).to_string();
+        self.all = self
+            .all
+            .as_ref()
+            .map(|s| env_with_context_no_errors(s, context).to_string());
+        self.list = self
+            .list
+            .as_ref()
+            .map(|s| env_with_context_no_errors(s, context).to_string());
+
+        Ok(())
     }
 }
 
@@ -151,8 +178,13 @@ impl DynamicGroupConfig {
                 Some("Main") => {
                     config.config = Some(prop.try_into()?);
                 }
-                Some(group) => {
-                    config.groups.insert(group.to_string(), prop.try_into()?);
+                Some(sources) => {
+                    for source in sources.split(',') {
+                        config.groups.insert(
+                            source.to_string(),
+                            DynamicGroupSource::from_props(prop, source.to_string())?,
+                        );
+                    }
                 }
                 None => {
                     if let Some(key) = prop.iter().next().map(|(k, _)| k) {
@@ -197,15 +229,7 @@ impl DynamicGroupConfig {
         }
 
         for (_, group) in self.groups.iter_mut() {
-            group.map = env_with_context_no_errors(&group.map, context).to_string();
-            group.all = group
-                .all
-                .as_ref()
-                .map(|s| env_with_context_no_errors(s, context).to_string());
-            group.list = group
-                .list
-                .as_ref()
-                .map(|s| env_with_context_no_errors(s, context).to_string());
+            group.set_cfgdir(cfgdir)?;
         }
 
         Ok(())
@@ -231,10 +255,10 @@ impl IntoIterator for DynamicGroupConfig {
 }
 
 impl GroupSource for DynamicGroupSource {
-    fn map(&self, group: &str, source: &str) -> Result<Option<String>, NodeSetParseError> {
+    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError> {
         let context = |s: &str| match s {
             "GROUP" => Some(group),
-            "SOURCE" => Some(source),
+            "SOURCE" => Some(self.name.as_str()),
             _ => None,
         };
         let map = env_with_context_no_errors(&self.map, context).to_string();
@@ -252,13 +276,13 @@ impl GroupSource for DynamicGroupSource {
         ))
     }
 
-    fn list(&self, source: &str) -> Vec<String> {
+    fn list(&self) -> String {
         let Some(ref list_cmd) = self.list else {
-            return vec![];
+            return Default::default();
         };
 
         let context = |s: &str| match s {
-            "SOURCE" => Some(source),
+            "SOURCE" => Some(self.name.as_str()),
             _ => None,
         };
         let list = env_with_context_no_errors(&list_cmd, context).to_string();
@@ -272,10 +296,8 @@ impl GroupSource for DynamicGroupSource {
         if !output.status.success() {
             panic!("Command '{}' returned non-zero exit code", list);
         }
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(|s| s.trim().to_string())
-            .collect()
+
+        String::from_utf8_lossy(&output.stdout).to_string()
     }
 }
 
@@ -296,12 +318,13 @@ impl IntoIterator for StaticGroupConfig {
 }
 
 impl GroupSource for StaticGroupSource {
-    fn map(&self, group: &str, _: &str) -> Result<Option<String>, NodeSetParseError> {
+    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError> {
         Ok(self.groups.get(group).map(|v| v.into()))
     }
 
-    fn list(&self, _: &str) -> Vec<String> {
-        self.groups.keys().cloned().collect()
+    fn list(&self) -> String {
+        use itertools::Itertools;
+        self.groups.keys().join(" ")
     }
 }
 
@@ -390,7 +413,6 @@ fn find_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
 impl Resolver {
     /// Create a new resolver from the default configuration files
     pub fn from_config() -> Result<Self, ConfigurationError> {
-        let mut resolver = Resolver::default();
         let mut groups = DynamicGroupConfig::default();
 
         let mut cfg_dir = None;
@@ -407,11 +429,21 @@ impl Resolver {
             }
         }
 
-        resolver.default_source = groups
-            .config
-            .as_ref()
-            .and_then(|c| c.default.clone())
-            .unwrap_or_else(|| "default".to_string());
+        Resolver::from_dynamic_config(groups)
+    }
+
+    /// Create a new resolver from a dynamic group configuration
+    ///
+    /// `set_cfgdir` must already have been called on the dynamic group configuration
+    fn from_dynamic_config(groups: DynamicGroupConfig) -> Result<Self, ConfigurationError> {
+        let mut resolver = Resolver {
+            sources: Default::default(),
+            default_source: groups
+                .config
+                .as_ref()
+                .and_then(|c| c.default.clone())
+                .unwrap_or_else(|| "default".to_string()),
+        };
 
         for autodir in groups.autodirs() {
             for path in find_files_with_ext(Path::new(&autodir), "yaml") {
@@ -422,7 +454,7 @@ impl Resolver {
             }
         }
         for confdir in groups.confdirs() {
-            for path in find_files_with_ext(Path::new(&confdir), "cfg") {
+            for path in find_files_with_ext(Path::new(&confdir), "conf") {
                 if let Some(file) = open_config_path(&path) {
                     let dynamic_groups = DynamicGroupConfig::from_reader(BufReader::new(file))?;
                     resolver.add_sources(dynamic_groups);
@@ -465,7 +497,7 @@ impl Resolver {
                 .sources
                 .get(source)
                 .ok_or_else(|| NodeSetParseError::Source(source.to_owned()))?
-                .map(group, source)?
+                .map(group)?
                 .unwrap_or_default(),
         )
     }
@@ -473,28 +505,43 @@ impl Resolver {
     /// List groups from a source
     ///
     /// If `source` is None, the default group source of the resolver is used.
-    pub fn list_groups(&self, source: Option<&str>) -> Vec<String> {
+    pub fn list_groups<T: IdRange + PartialEq + Clone + Display + Debug>(
+        &self,
+        source: Option<&str>,
+    ) -> NodeSet<T> {
         let source = source.unwrap_or(self.default_source.as_str());
 
-        self.sources
-            .get(source)
-            .map(|s| s.list(source))
+        Parser::default()
+            .parse(
+                &self
+                    .sources
+                    .get(source)
+                    .map(|s| s.list())
+                    .unwrap_or_default(),
+            )
             .unwrap_or_default()
     }
 
     /// List groups from all sources
     ///
     /// Returns a list of tuples with the source name and the group name
-    pub fn list_all_groups(&self) -> Vec<(String, String)> {
+    pub fn list_all_groups<T: IdRange + PartialEq + Clone + Display + Debug>(
+        &self,
+    ) -> Vec<(String, NodeSet)> {
         self.sources
             .iter()
-            .flat_map(|(source, groups)| {
-                groups
-                    .list(source)
-                    .into_iter()
-                    .map(move |g| (source.clone(), g))
+            .map(|(source, groups)| {
+                (
+                    source.clone(),
+                    Parser::default().parse(&groups.list()).unwrap_or_default(),
+                )
             })
             .collect()
+    }
+
+    /// Return the default group source
+    pub fn default_source(&self) -> &str {
+        &self.default_source
     }
 
     fn add_sources(
@@ -514,7 +561,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_static_config() {
+    fn test_static_config() {
         let config = include_str!("tests/cluster.yaml");
         let mut resolver = Resolver::default();
         resolver.add_sources(StaticGroupConfig::from_reader(config.as_bytes()).unwrap());
@@ -524,17 +571,109 @@ mod tests {
             "login[1-2]"
         );
 
-        // One test for a "groupset" @rack[1-2] that may expand to
-        // other groups.
+        assert_eq!(
+            parser.parse::<IdRangeList>("@*").unwrap(),
+            parser
+                .parse::<IdRangeList>(
+                    "node[0001-0288],mds[1-4],oss[0-15],server0001,login[1-2],mgmt[1-2]"
+                )
+                .unwrap()
+        );
+
+        match parser.parse::<IdRangeList>("@login:aa") {
+            Err(NodeSetParseError::Source(_)) => (),
+            e => panic!("Expected Source error, got {e:?}",),
+        }
+        assert_eq!(
+            parser
+                .parse::<IdRangeList>("@roles:cpu_only")
+                .unwrap()
+                .to_string(),
+            "node[0009-0288]"
+        );
+
+        assert_eq!(
+            parser
+                .parse::<IdRangeList>("@roles:non_existent")
+                .unwrap()
+                .to_string(),
+            ""
+        );
+
+        match parser.parse::<IdRangeList>("@non_existent:non_existent") {
+            Err(NodeSetParseError::Source(_)) => (),
+            _ => panic!("Expected Source error"),
+        }
+
         let ns1 = parser.parse::<IdRangeList>("@rack[1-2]:hsw").unwrap();
         let ns2 = "mgmt[1-2],oss[0-15],mds[1-4]".parse().unwrap();
-        let ns = ns1.difference(&ns2);
-        assert!(ns.is_empty());
+        assert_eq!(ns1, ns2);
+
+        let ns1 = parser.parse::<IdRangeList>("@rack[1-2]:*").unwrap();
+        let ns2 = "mgmt[1-2],oss[0-15],mds[1-4],node[0001-0288]"
+            .parse()
+            .unwrap();
+
+        assert_eq!(ns1, ns2);
     }
 
     #[test]
     fn test_parse_dynamic_config() {
-        let config = include_str!("tests/groups.cfg");
-        let _ = DynamicGroupConfig::from_reader(config.as_bytes()).unwrap();
+        use tempdir::TempDir;
+
+        let config = include_str!("tests/groups.conf");
+        let mut dynamic = DynamicGroupConfig::from_reader(config.as_bytes()).unwrap();
+
+        let tmp_dir = TempDir::new("tests").unwrap();
+
+        std::fs::create_dir(tmp_dir.path().join("groups.d")).unwrap();
+
+        std::fs::write(
+            tmp_dir.path().join("groups.d").join("local.cfg"),
+            include_str!("tests/local.cfg"),
+        )
+        .unwrap();
+
+        dynamic
+            .set_cfgdir(tmp_dir.path().to_str().unwrap())
+            .unwrap();
+
+        assert_eq!(
+            dynamic.autodirs(),
+            vec![
+                "/etc/clustershell/groups.d",
+                &format!("{}/groups.d", tmp_dir.path().to_str().unwrap())
+            ]
+        );
+        assert_eq!(
+            dynamic.confdirs(),
+            vec![
+                "/etc/clustershell/groups.conf.d",
+                &format!("{}/groups.conf.d", tmp_dir.path().to_str().unwrap())
+            ]
+        );
+
+        let resolver = Resolver::from_dynamic_config(dynamic).unwrap();
+
+        assert_eq!(
+            resolver
+                .resolve::<IdRangeList>(None, "oss")
+                .unwrap()
+                .to_string(),
+            "example[4-5]"
+        );
+
+        assert_eq!(
+            resolver
+                .resolve::<IdRangeList>(Some("local"), "mds")
+                .unwrap()
+                .to_string(),
+            "example6"
+        );
+
+        assert_eq!(
+            resolver.list_groups::<IdRangeList>(Some("local")),
+            "compute,gpu,all,adm,io,mds,oss".parse::<NodeSet>().unwrap()
+        );
     }
 }

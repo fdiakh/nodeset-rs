@@ -216,7 +216,8 @@ impl<'a> Parser<'a> {
                     // Match either 'sources:groups' or 'groups'
                     // Both sources and groups can be sets i.e: @source[1-4]:group[1,5]
                     alt((
-                        Self::group_with_source,
+                        map(tag("*"), |_| (None, None)),
+                        |s| self.group_with_source(s),
                         map(Self::nodeset, |s: NodeSet<T>| (None, Some(s))),
                     )),
                     |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
@@ -239,20 +240,18 @@ impl<'a> Parser<'a> {
                                 ))
                             })
                         {
-                            if let Some(groups) = groups.as_ref() {
-                                for group in groups.iter() {
-                                    if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group)
-                                    {
-                                        ns.extend_from_nodeset(&nodeset);
-                                    }
+                            let all_groups;
+                            let groups = match &groups {
+                                Some(groups) => groups,
+                                None => {
+                                    all_groups = resolver.list_groups(source.as_deref());
+                                    &all_groups
                                 }
-                            } else {
-                                for group in resolver.list_groups(source.as_deref()) {
-                                    if let Ok(nodeset) = resolver.resolve(source.as_deref(), &group)
-                                    {
-                                        ns.extend_from_nodeset(&nodeset);
-                                    }
-                                }
+                            };
+
+                            for group in groups.iter() {
+                                let nodeset = resolver.resolve(source.as_deref(), &group)?;
+                                ns.extend_from_nodeset(&nodeset);
                             }
                         }
 
@@ -266,17 +265,20 @@ impl<'a> Parser<'a> {
 
     #[allow(clippy::type_complexity)]
     fn group_with_source<T>(
+        self,
         i: &str,
     ) -> IResult<&str, (Option<NodeSet<T>>, Option<NodeSet<T>>), CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         alt((
+            map(pair(Self::nodeset, tag(":*")), |source| {
+                (Some(source.0), None)
+            }),
             map(
-                separated_pair(Self::nodeset, char(':'), map(Self::nodeset, Some)),
-                |r| (Some(r.0), r.1),
+                separated_pair(Self::nodeset, char(':'), opt(Self::nodeset)),
+                |source| (Some(source.0), Some(source.1.unwrap_or_default())),
             ),
-            map(pair(Self::nodeset, tag(":*")), |r| (Some(r.0), None)),
         ))(i)
     }
 

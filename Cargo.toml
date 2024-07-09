@@ -21,6 +21,8 @@ shlex = "1.1.0"
 rust-ini = "0.19.0"
 serde_yaml = "0.9.34"
 
+[dev-dependencies]
+tempdir = "0.3.7"
 
 [features]
 unstable = []
