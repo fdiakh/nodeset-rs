@@ -11,7 +11,7 @@ are used in multiple dimensions, it implies a cartesian product. For example:
 `r[1-2]sw[1-2]-port[1-2]` represents 8 ports:
 `r1sw1-port1,r1sw1-port2,r1sw2-port1,...,r2sw2-port2`.
 
-`ns` allows to fold or expand nodesets, as well as to perform algebric
+`ns` allows to fold or expand nodesets, as well as to perform algebraic
 operations on them (union, intersection, difference, ...)
 
 # Command line examples
