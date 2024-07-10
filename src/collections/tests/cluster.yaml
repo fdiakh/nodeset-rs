@@ -29,3 +29,8 @@ rack1:
 
 rack2:
     hsw: "@roles:adm"
+
+network:
+    net1: node[10-19]
+    net2: node[20-29]
+    net3: node[30-39]
