@@ -19,7 +19,7 @@ use std::fmt;
 /// more efficient especially for one-dimensional NodeSets.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
-    pub(crate) dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>,
+    pub(crate) bases: HashMap<NodeSetDimensions, IdSetKind<T>>,
     lazy: bool,
 }
 
@@ -39,7 +39,7 @@ impl NodeSet<crate::IdRangeList> {
 impl<T> Default for NodeSet<T> {
     fn default() -> Self {
         Self {
-            dimnames: HashMap::new(),
+            bases: HashMap::new(),
             lazy: false,
         }
     }
@@ -156,7 +156,7 @@ where
 {
     /// Returns the number of elements in the set
     pub fn len(&self) -> usize {
-        self.dimnames
+        self.bases
             .values()
             .map(|set| match set {
                 IdSetKind::None => 1,
@@ -168,12 +168,12 @@ where
 
     /// Returns true if the set contains no element
     pub fn is_empty(&self) -> bool {
-        self.dimnames.is_empty()
+        self.bases.is_empty()
     }
 
     /// Returns an iterator over all elements of the set
     pub fn iter(&self) -> NodeSetIter<'_, T> {
-        NodeSetIter::new(&self.dimnames)
+        NodeSetIter::new(&self.bases)
     }
 
     /// Folds and deduplicates the internal representation of the set
@@ -183,7 +183,7 @@ where
     /// again before calling len() otherwise nodes may be counted multiple
     /// times.
     pub(crate) fn fold(&mut self) -> &mut Self {
-        self.dimnames.values_mut().for_each(|s| match s {
+        self.bases.values_mut().for_each(|s| match s {
             IdSetKind::None => {}
             IdSetKind::Single(set) => {
                 set.sort();
@@ -199,13 +199,17 @@ where
 
     /// Adds elements from `other` to `self`
     pub(crate) fn extend_from_nodeset(&mut self, other: &Self) {
-        for (dimname, oset) in other.dimnames.iter() {
-            match self.dimnames.get_mut(dimname) {
+        for (dimname, oset) in other.bases.iter() {
+            match self.bases.get_mut(dimname) {
                 None => {
-                    self.dimnames.insert(dimname.clone(), oset.clone());
+                    self.bases.insert(dimname.clone(), oset.clone());
                 }
                 Some(set) => match set {
-                    IdSetKind::None => {}
+                    IdSetKind::None => {
+                        let IdSetKind::None = oset else {
+                            panic!("Mismatched set kinds");
+                        };
+                    }
                     IdSetKind::Single(set) => {
                         let IdSetKind::Single(oset) = oset else {
                             panic!("Mismatched set kinds");
@@ -238,8 +242,8 @@ where
     /// Returns a new set containing elements found in `self` but not in `other`
     pub fn difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
-        for (dimname, set) in self.dimnames.iter() {
-            if let Some(oset) = other.dimnames.get(dimname) {
+        for (dimname, set) in self.bases.iter() {
+            if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
                     (IdSetKind::None, IdSetKind::None) => continue,
                     (IdSetKind::Single(set), IdSetKind::Single(oset)) => {
@@ -268,8 +272,8 @@ where
     /// Returns a new set containing elements that are in both `self` and `other`
     pub fn intersection(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
-        for (dimname, set) in self.dimnames.iter() {
-            if let Some(oset) = other.dimnames.get(dimname) {
+        for (dimname, set) in self.bases.iter() {
+            if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
                     (IdSetKind::None, IdSetKind::None) => continue,
                     (_, IdSetKind::None) => {
@@ -299,8 +303,8 @@ where
     /// Returns a new set containing the elements found in either `self` or `other` but not in both
     pub fn symmetric_difference(&self, other: &Self) -> Self {
         let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
-        for (dimname, set) in self.dimnames.iter() {
-            if let Some(oset) = other.dimnames.get(dimname) {
+        for (dimname, set) in self.bases.iter() {
+            if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
                     (IdSetKind::None, IdSetKind::None) => continue,
                     (IdSetKind::Single(set), IdSetKind::Single(oset)) => {
@@ -322,8 +326,8 @@ where
                 dimnames.insert(dimname.clone(), set.clone());
             }
         }
-        for (dimname, set) in other.dimnames.iter() {
-            if !self.dimnames.contains_key(dimname) {
+        for (dimname, set) in other.bases.iter() {
+            if !self.bases.contains_key(dimname) {
                 dimnames.insert(dimname.clone(), set.clone());
             }
         }
@@ -332,7 +336,10 @@ where
 
     /// Create a NodeSet from a mapping of NodeSetDimensions to IdSets
     fn from_dims(dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>, lazy: bool) -> Self {
-        let mut res = NodeSet { dimnames, lazy };
+        let mut res = NodeSet {
+            bases: dimnames,
+            lazy,
+        };
 
         if !lazy {
             res.fold();
@@ -345,7 +352,7 @@ where
     /// operation
     pub(crate) fn lazy() -> Self {
         NodeSet {
-            dimnames: HashMap::new(),
+            bases: HashMap::new(),
             lazy: true,
         }
     }
@@ -375,7 +382,11 @@ impl From<CustomError<&str>> for NodeSetParseError {
 /// List of names for each dimension of a NodeSet along with an optional suffix
 #[derive(PartialEq, Eq, Hash, Clone, Default, Debug)]
 pub(crate) struct NodeSetDimensions {
+    /// The names associated with each dimension of a nodeset
     dimnames: Vec<String>,
+    /// If true, the last name is a suffix meaning that there is one more name
+    /// than ranges
+    has_suffix: bool,
 }
 
 impl NodeSetDimensions {
@@ -384,6 +395,15 @@ impl NodeSetDimensions {
     }
 
     pub(crate) fn push(&mut self, d: &str) {
+        assert!(
+            !self.has_suffix,
+            "Cannot add a dimension name after a suffix has been added"
+        );
+        self.dimnames.push(d.into());
+    }
+
+    pub(crate) fn push_suffix(&mut self, d: &str) {
+        self.has_suffix = true;
         self.dimnames.push(d.into());
     }
 
@@ -428,7 +448,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut first = true;
 
-        for (dim, set) in &self.dimnames {
+        for (dim, set) in &self.bases {
             if !first {
                 f.write_str(",")?;
             }
@@ -712,5 +732,15 @@ mod tests {
         let mut nodes = id1.iter().collect::<Vec<_>>();
         nodes.sort();
         assert_eq!(nodes, vec!["a1", "n40", "n41", "y100", "y101"]);
+
+        let id1 = "a1,a".parse::<NodeSet<IdRangeList>>().unwrap();
+        let mut nodes = id1.iter().collect::<Vec<_>>();
+        nodes.sort();
+        assert_eq!(nodes, vec!["a", "a1"]);
+
+        let id1 = "a1a,a1a1".parse::<NodeSet<IdRangeList>>().unwrap();
+        let mut nodes = id1.iter().collect::<Vec<_>>();
+        nodes.sort();
+        assert_eq!(nodes, vec!["a1a", "a1a1"]);
     }
 }
