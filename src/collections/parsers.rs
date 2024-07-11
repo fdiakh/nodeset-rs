@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
                     id.push_idrs(&idrs);
                 }
                 id.sort();
-                ns.dimnames.entry(dims).or_insert(IdSetKind::Single(id));
+                ns.bases.entry(dims).or_insert(IdSetKind::Single(id));
                 ns
             },
         )(i)
@@ -184,20 +184,20 @@ impl<'a> Parser<'a> {
                     dims.push(dim);
                 }
                 if let Some(dim) = r.1 {
-                    dims.push(dim);
+                    dims.push_suffix(dim);
                 }
 
                 let mut ns = NodeSet::lazy();
                 if ranges.is_empty() {
-                    ns.dimnames.entry(dims).or_insert_with(|| IdSetKind::None);
+                    ns.bases.entry(dims).or_insert_with(|| IdSetKind::None);
                 } else if ranges.len() == 1 {
-                    ns.dimnames
+                    ns.bases
                         .entry(dims)
                         .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
                 } else {
                     let mut ids = IdSet::new();
                     ids.products.push(IdRangeProduct { ranges });
-                    ns.dimnames.entry(dims).or_insert(IdSetKind::Multiple(ids));
+                    ns.bases.entry(dims).or_insert(IdSetKind::Multiple(ids));
                 }
 
                 ns
