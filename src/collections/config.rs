@@ -188,6 +188,11 @@ impl Resolver {
             .collect()
     }
 
+    /// List all sources
+    pub fn sources(&self) -> impl Iterator<Item = &String> {
+        self.sources.keys()
+    }
+
     /// Returns the default group source for this resolver
     pub fn default_source(&self) -> &str {
         &self.default_source

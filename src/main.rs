@@ -43,6 +43,8 @@ enum Commands {
         #[arg(short)]
         nodeset: bool,
     },
+    /// Display group sources
+    Sources {},
 }
 
 fn main() -> Result<()> {
@@ -119,6 +121,20 @@ fn main() -> Result<()> {
                 .join("\n");
 
             println!("{}", s);
+        }
+        Commands::Sources {} => {
+            let resolver = Resolver::get_global();
+            for source in resolver.sources() {
+                println!(
+                    "{}{}",
+                    source,
+                    if source == resolver.default_source() {
+                        " (default)"
+                    } else {
+                        ""
+                    }
+                );
+            }
         }
     }
 
