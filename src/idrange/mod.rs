@@ -18,6 +18,7 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
     type SelfIter<'a>: Iterator<Item = &'a u32> + Clone + fmt::Debug
     where
         Self: 'a;
+        
     type DifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
@@ -30,7 +31,6 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
     type UnionIter<'a>: Iterator<Item = &'a u32> + SortedIterator
     where
         Self: 'a;
-
     fn new() -> Self;
     /// Makes the range lazy, meaning that it will no longer be automatically sorted or deduplicated when adding elements.
     ///

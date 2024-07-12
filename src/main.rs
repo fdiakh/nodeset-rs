@@ -22,7 +22,7 @@ enum Commands {
         nodeset: Option<Vec<String>>,
     },
     /// Expand nodeset(s) into separate nodes
-    Expand {
+    List {
         /// Nodeset(s) to expand
         nodeset: Option<Vec<String>>,
         /// Separator between nodes
@@ -35,7 +35,7 @@ enum Commands {
         nodeset: Option<Vec<String>>,
     },
     /// Display groups of nodes
-    List {
+    Groups {
         /// List groups from all sources
         #[arg(short)]
         all: bool,
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
             let nodeset = nodeset_argument(nodeset)?;
             println!("{}", nodeset);
         }
-        Commands::Expand { nodeset, separator } => {
+        Commands::List { nodeset, separator } => {
             let nodeset = nodeset_argument(nodeset)?;
             let mut it = nodeset.iter();
 
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
             let nodeset = nodeset_argument(nodeset)?;
             println!("{}", nodeset.len());
         }
-        Commands::List { all, nodeset } => {
+        Commands::Groups { all, nodeset } => {
             let resolver = Resolver::get_global();
 
             let all_groups;
