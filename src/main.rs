@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "unstable", feature(test))]
 
+use auto_enums::auto_enum;
 use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
@@ -78,52 +79,7 @@ fn main() -> Result<()> {
             println!("{}", nodeset.len());
         }
         Commands::Groups { all, nodeset } => {
-            let resolver = Resolver::get_global();
-
-            let all_groups;
-            let groups;
-
-            let iter: Box<dyn Iterator<Item = (Option<&str>, String)>> = if all {
-                all_groups = resolver.list_all_groups::<IdRangeList>().collect::<Vec<_>>();
-                Box::new(all_groups.iter().flat_map(|(source, groups)| {
-                    let source = if *source == resolver.default_source() {
-                        None
-                    } else {
-                        Some(*source)
-                    };
-
-                    groups
-                        .into_iter()
-                        .map(move |group| (source, group))
-                }))
-            } else {
-                groups = resolver.list_groups::<IdRangeList>(None);
-                Box::new(groups.iter().map(|g| (None::<&str>, g)))
-            };
-
-            let s = iter
-                .filter_map(|(source, group)| {
-                    let display_source = match &source {
-                        Some(s) => format!("{}:", s),
-                        None => "".to_string(),
-                    };
-                    if nodeset {
-                        Some(format!(
-                            "@{}{} {}",
-                            display_source,
-                            group,
-                            resolver
-                                .resolve::<ns::IdRangeList>(source.as_deref(), &group)
-                                .ok()?
-                        ))
-                    } else {
-                        Some(format!("@{}{}", display_source, group))
-                    }
-                })
-                .sorted()
-                .join("\n");
-
-            println!("{}", s);
+            group_cmd::<IdRangeList>(all, nodeset);
         }
         Commands::Sources {} => {
             let resolver = Resolver::get_global();
@@ -142,6 +98,57 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[auto_enum]
+fn group_cmd<T>(all: bool, display_members: bool) {
+    let resolver = Resolver::get_global();
+
+    let all_groups;
+    let groups;
+
+    #[auto_enum(Iterator)]
+    let iter = if all {
+        all_groups = resolver
+            .list_all_groups::<IdRangeList>()
+            .collect::<Vec<_>>();
+        all_groups.iter().flat_map(|(source, groups)| {
+            let source = if *source == resolver.default_source() {
+                None
+            } else {
+                Some(*source)
+            };
+
+            groups.iter().map(move |group| (source, group))
+        })
+    } else {
+        groups = resolver.list_groups::<IdRangeList>(None);
+        groups.iter().map(|group| (None, group))
+    };
+
+    let s = iter
+        .filter_map(|(source, group)| {
+            let display_source = match &source {
+                Some(s) => format!("{}:", s),
+                None => "".to_string(),
+            };
+            if display_members {
+                Some(format!(
+                    "@{}{} {}",
+                    display_source,
+                    group,
+                    resolver
+                        .resolve::<ns::IdRangeList>(source.as_deref(), &group)
+                        .ok()?
+                ))
+            } else {
+                Some(format!("@{}{}", display_source, group))
+            }
+        })
+        .sorted()
+        .join("\n");
+
+    println!("{}", s);
 }
 
 fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet> {

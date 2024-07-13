@@ -1,6 +1,10 @@
 use super::config::Resolver;
+use super::nodeset::NodeSetDimensions;
 use crate::collections::idset::IdRangeProduct;
 use crate::collections::nodeset::IdSetKind;
+use crate::idrange::{IdRange, IdRangeStep};
+use crate::{IdSet, NodeSet, NodeSetParseError};
+use auto_enums::auto_enum;
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
@@ -15,10 +19,6 @@ use std::fmt;
 fn is_component_char(c: char) -> bool {
     char::is_alphabetic(c) || ['-', '_', '.'].contains(&c)
 }
-
-use super::nodeset::NodeSetDimensions;
-use crate::idrange::{IdRange, IdRangeStep};
-use crate::{IdSet, NodeSet, NodeSetParseError};
 
 /// Parse strings into nodesets
 #[derive(Copy, Clone, Default)]
@@ -205,6 +205,7 @@ impl<'a> Parser<'a> {
         )(i)
     }
 
+    #[auto_enum]
     fn group<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -227,19 +228,15 @@ impl<'a> Parser<'a> {
                             return Ok(ns);
                         };
 
+                        #[auto_enum(Iterator)]
+                        let sources = match &sources {
+                            Some(sources) => sources.iter().map(Some),
+                            None => std::iter::once(self.default_source.map(|s| s.to_string())),
+                        };
+
                         // Iterate over the sources or use an iterator
                         // which yields the default source once
-                        for source in sources
-                            .as_ref()
-                            .map(|sources| -> Box<dyn Iterator<Item = Option<String>>> {
-                                Box::new(sources.iter().map(Some))
-                            })
-                            .unwrap_or_else(|| -> Box<dyn Iterator<Item = Option<String>>> {
-                                Box::new(std::iter::once(
-                                    self.default_source.map(|s| s.to_string()),
-                                ))
-                            })
-                        {
+                        for source in sources {
                             let all_groups;
                             let groups = match &groups {
                                 Some(groups) => groups,
