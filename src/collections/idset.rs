@@ -11,6 +11,7 @@ pub struct IdRangeProduct<T> {
     pub(crate) ranges: Vec<T>,
 }
 
+#[derive(Debug, Clone)]
 struct IdRangeProductIter<'a, T>
 where
     T: IdRange,
@@ -194,6 +195,7 @@ where
     }
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct IdSetIter<'a, T>
 where
     T: IdRange + Display,

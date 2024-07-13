@@ -45,6 +45,7 @@ impl<T> Default for NodeSet<T> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct NodeSetIter<'a, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -55,6 +56,7 @@ where
     cache: Option<CachedTranslation>,
 }
 
+#[derive(Debug, Clone)]
 enum IdSetIterKind<'a, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,

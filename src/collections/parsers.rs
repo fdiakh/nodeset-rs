@@ -21,7 +21,7 @@ fn is_component_char(c: char) -> bool {
 }
 
 /// Parse strings into nodesets
-#[derive(Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Parser<'a> {
     resolver: Option<&'a Resolver>,
     default_source: Option<&'a str>,
