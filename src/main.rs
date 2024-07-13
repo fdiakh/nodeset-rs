@@ -83,24 +83,27 @@ fn main() -> Result<()> {
             let all_groups;
             let groups;
 
-            let iter: Box<dyn Iterator<Item = (Option<&String>, String)>> = if all {
-                all_groups = resolver.list_all_groups::<IdRangeList>();
+            let iter: Box<dyn Iterator<Item = (Option<&str>, String)>> = if all {
+                all_groups = resolver.list_all_groups::<IdRangeList>().collect::<Vec<_>>();
                 Box::new(all_groups.iter().flat_map(|(source, groups)| {
-                    let source = if source == resolver.default_source() {
+                    let source = if *source == resolver.default_source() {
                         None
                     } else {
-                        Some(source)
+                        Some(*source)
                     };
-                    groups.iter().map(move |group| (source, group))
+
+                    groups
+                        .into_iter()
+                        .map(move |group| (source, group))
                 }))
             } else {
                 groups = resolver.list_groups::<IdRangeList>(None);
-                Box::new(groups.iter().map(|g| (None::<&String>, g)))
+                Box::new(groups.iter().map(|g| (None::<&str>, g)))
             };
 
             let s = iter
                 .filter_map(|(source, group)| {
-                    let display_source = match source {
+                    let display_source = match &source {
                         Some(s) => format!("{}:", s),
                         None => "".to_string(),
                     };
@@ -110,7 +113,7 @@ fn main() -> Result<()> {
                             display_source,
                             group,
                             resolver
-                                .resolve::<ns::IdRangeList>(source.map(|s| s.as_str()), &group)
+                                .resolve::<ns::IdRangeList>(source.as_deref(), &group)
                                 .ok()?
                         ))
                     } else {

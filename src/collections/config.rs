@@ -176,16 +176,15 @@ impl Resolver {
     /// Returns a list of tuples with the source name and the group name
     pub fn list_all_groups<T: IdRange + PartialEq + Clone + Display + Debug>(
         &self,
-    ) -> Vec<(String, NodeSet)> {
+    ) -> impl Iterator<Item = (&str, NodeSet<T>)> {
         self.sources
             .iter()
             .map(|(source, groups)| {
                 (
-                    source.clone(),
+                    source.as_str(),
                     Parser::default().parse(&groups.list()).unwrap_or_default(),
                 )
             })
-            .collect()
     }
 
     /// List all sources
