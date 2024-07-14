@@ -17,14 +17,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Fold nodeset(s) (or separate nodes) into one nodeset
+    /// Fold nodesets (or separate nodes) into one nodeset
     Fold {
-        /// Nodeset(s) to fold
+        /// Nodesets to fold
         nodeset: Option<Vec<String>>,
     },
-    /// Expand nodeset(s) into separate nodes
+    /// Expand nodesets into separate nodes
     List {
-        /// Nodeset(s) to expand
+        /// Nodesets to expand
         nodeset: Option<Vec<String>>,
         /// Separator between nodes
         #[arg(short, default_value = " ")]
@@ -32,17 +32,19 @@ enum Commands {
     },
     /// Count nodeset(s)
     Count {
-        /// Nodeset(s) to count
+        /// Nodesets to count
         nodeset: Option<Vec<String>>,
     },
     /// Display groups of nodes
     Groups {
         /// List groups from all sources
         #[arg(short)]
-        all: bool,
-        /// Display nodeset corresponding to each group
+        all_sources: bool,
+        /// Display group members
         #[arg(short)]
-        nodeset: bool,
+        members: bool,
+        /// Display groups intersecting with provided nodesets
+        nodeset: Option<Vec<String>>,
     },
     /// Display group sources
     Sources {},
@@ -78,8 +80,17 @@ fn main() -> Result<()> {
             let nodeset = nodeset_argument(nodeset)?;
             println!("{}", nodeset.len());
         }
-        Commands::Groups { all, nodeset } => {
-            group_cmd::<IdRangeList>(all, nodeset);
+        Commands::Groups {
+            all_sources,
+            members,
+            nodeset,
+        } => {
+            let nodeset = if nodeset.is_some() {
+                Some(nodeset_argument(nodeset)?)
+            } else {
+                None
+            };
+            group_cmd::<IdRangeList>(all_sources, members, nodeset);
         }
         Commands::Sources {} => {
             let resolver = Resolver::get_global();
@@ -101,7 +112,7 @@ fn main() -> Result<()> {
 }
 
 #[auto_enum]
-fn group_cmd<T>(all: bool, display_members: bool) {
+fn group_cmd<T>(all: bool, display_members: bool, filter: Option<NodeSet>) {
     let resolver = Resolver::get_global();
 
     let all_groups;
@@ -128,19 +139,23 @@ fn group_cmd<T>(all: bool, display_members: bool) {
 
     let s = iter
         .filter_map(|(source, group)| {
+            let mut members = resolver
+                .resolve::<ns::IdRangeList>(source.as_deref(), &group)
+                .ok()?;
+
+            if let Some(filter) = &filter {
+                members = members.intersection(filter);
+                if members.is_empty() {
+                    return None;
+                }
+            }
+
             let display_source = match &source {
                 Some(s) => format!("{}:", s),
                 None => "".to_string(),
             };
             if display_members {
-                Some(format!(
-                    "@{}{} {}",
-                    display_source,
-                    group,
-                    resolver
-                        .resolve::<ns::IdRangeList>(source.as_deref(), &group)
-                        .ok()?
-                ))
+                Some(format!("@{}{} {}", display_source, group, members))
             } else {
                 Some(format!("@{}{}", display_source, group))
             }
@@ -153,6 +168,7 @@ fn group_cmd<T>(all: bool, display_members: bool) {
 
 fn nodeset_argument(ns: Option<Vec<String>>) -> Result<NodeSet> {
     let nodeset: NodeSet = match ns {
+        Some(v) if v == vec!["-".to_string()] => read_stdin()?,
         Some(v) => v.join(" "),
         None => read_stdin()?,
     }
