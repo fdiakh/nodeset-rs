@@ -17,14 +17,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Fold nodesets (or separate nodes) into one nodeset
+    /// Fold nodesets (or individual nodes) into one nodeset
     Fold {
         /// Nodesets to fold
         nodeset: Option<Vec<String>>,
     },
-    /// Expand nodesets into separate nodes
+    /// List individual nodes in nodesets
     List {
-        /// Nodesets to expand
+        /// Nodesets to expand into a list
         nodeset: Option<Vec<String>>,
         /// Separator between nodes
         #[arg(short, default_value = " ")]

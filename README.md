@@ -16,9 +16,9 @@ operations on them (union, intersection, difference, ...)
 
 # Command line examples
 
-* Expanding nodes:
+* Listing nodes:
 ```bash
-$ ns expand r[2-4/2]sw1-port[23-24]
+$ ns list r[2-4/2]sw1-port[23-24]
 r2esw1-port23 r2sw1-port24 r4sw1-port23 r4sw1-port24
 ```
 * Folding nodes:
@@ -67,3 +67,9 @@ time when performing multiple operations on nodesets in a shell script. It is
 also faster at parsing and performing operations on large nodesets. The library
 crate can also be used to handle nodesets natively in Rust while sharing group
 definitions with clustershell.
+
+## Similar rust projects
+
+* [nodeagg](https://crates.io/crates/nodeagg)
+* [hostlist](https://crates.io/crates/hostlist)
+* [hostlist-parser](https://crates.io/crates/hostlist-parser)
