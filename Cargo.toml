@@ -1,11 +1,17 @@
 [package]
-name = "ns"
-version = "0.1.0"
+name = "nodeset"
+version = "0.5.0"
 authors = ["Francois Diakhate <fdiakh@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/fdiakh/nodeset-rs"
+keywords = ["nodeset", "hostlist", "cluster", "hpc"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "ns"
+path = "src/main.rs"
 
 [dependencies]
 itertools = "0.10.5"
@@ -27,3 +33,6 @@ tempdir = "0.3.7"
 
 [features]
 unstable = []
+
+[profile.release]
+debug = true

@@ -1,5 +1,5 @@
 use super::SortedIterator;
-use super::{CachedTranslation, IdRange, IdRangeStep};
+use super::{CachedTranslation, IdRange, RankRanges};
 use std::collections::btree_set;
 use std::collections::BTreeSet;
 use std::fmt::{self, Debug, Display};
@@ -70,11 +70,13 @@ impl IdRange for IdRangeTree {
     fn push(&mut self, other: &Self) {
         self.indexes.extend(&other.indexes);
     }
-    fn push_idrs(&mut self, idrs: &IdRangeStep) {
-        for (start, end, step) in idrs.rank_ranges() {
-            self.indexes.extend((start..end + 1).step_by(step));
+
+    fn push_idrs(&mut self, ranges: impl RankRanges) {
+        for (start, end, step) in ranges.rank_ranges() {
+            self.indexes.extend((start..=end).step_by(step as usize));
         }
     }
+
     fn len(&self) -> usize {
         self.indexes.len()
     }

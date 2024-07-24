@@ -4,7 +4,7 @@ use auto_enums::auto_enum;
 use clap::{Parser, Subcommand};
 use eyre::{Context, Result};
 use itertools::Itertools;
-use ns::{IdRangeList, NodeSet, Resolver};
+use nodeset::{IdRangeList, NodeSet, Resolver};
 use std::io;
 use std::io::Read;
 
@@ -17,7 +17,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Fold nodesets (or individual nodes) into one nodeset
+    /// Fold nodesets or individual nodes into a nodeset
     Fold {
         /// Nodesets to fold
         nodeset: Option<Vec<String>>,
@@ -30,12 +30,12 @@ enum Commands {
         #[arg(short, default_value = " ")]
         separator: String,
     },
-    /// Count nodeset(s)
+    /// Count nodes in nodesets
     Count {
         /// Nodesets to count
         nodeset: Option<Vec<String>>,
     },
-    /// Display groups of nodes
+    /// List groups of nodes
     Groups {
         /// List groups from all sources
         #[arg(short)]
@@ -46,7 +46,7 @@ enum Commands {
         /// Display groups intersecting with provided nodesets
         nodeset: Option<Vec<String>>,
     },
-    /// Display group sources
+    /// List group sources
     Sources {},
 }
 
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            group_cmd::<IdRangeList>(all_sources, members, nodeset);
+            group_cmd(all_sources, members, nodeset);
         }
         Commands::Sources {} => {
             let resolver = Resolver::get_global();
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
 }
 
 #[auto_enum]
-fn group_cmd<T>(all: bool, display_members: bool, filter: Option<NodeSet>) {
+fn group_cmd(all: bool, display_members: bool, filter: Option<NodeSet>) {
     let resolver = Resolver::get_global();
 
     let all_groups;
@@ -139,9 +139,7 @@ fn group_cmd<T>(all: bool, display_members: bool, filter: Option<NodeSet>) {
 
     let s = iter
         .filter_map(|(source, group)| {
-            let mut members = resolver
-                .resolve::<ns::IdRangeList>(source.as_deref(), &group)
-                .ok()?;
+            let mut members = resolver.resolve::<IdRangeList>(source, &group).ok()?;
 
             if let Some(filter) = &filter {
                 members = members.intersection(filter);

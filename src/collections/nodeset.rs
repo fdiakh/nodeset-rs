@@ -2,6 +2,7 @@ use super::parsers::CustomError;
 use super::parsers::Parser;
 use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
+use crate::idrange::RangeStepError;
 use crate::Resolver;
 use crate::{IdSet, IdSetIter};
 use std::collections::HashMap;
@@ -496,6 +497,10 @@ pub enum ConfigurationError {
 #[derive(thiserror::Error, Debug)]
 pub enum NodeSetParseError {
     /// An error occurred while parsing an integer.
+    #[error("invalid range")]
+    RangeError(#[from] RangeStepError),
+
+    /// An error occurred while parsing an integer.
     #[error("invalid integer")]
     ParseIntError(#[from] std::num::ParseIntError),
 
@@ -506,10 +511,6 @@ pub enum NodeSetParseError {
     /// An error occurred while executing an external command as specified in the dynamic configuration file.
     #[error("external command execution failed")]
     Command(#[from] std::io::Error),
-
-    /// A range is inverted (ie `[9-2]`).
-    #[error("inverted range '{0}'")]
-    Reverse(String),
 
     /// A parsing error which does not fit in any other category.
     #[error("unable to parse '{0}'")]
@@ -522,16 +523,24 @@ pub enum NodeSetParseError {
     /// A reference was made to a group source that does not exist.
     #[error("Unknown group source: '{0}'")]
     Source(String),
-
-    /// A reference was made to a group that does not exist in the specified source.
-    #[error("Unknown group: '{1}' in source: '{0}'")]
-    Group(String, String),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::idrange::IdRangeList;
+
+    fn parse_to_fold(ns: &str) -> Result<String, NodeSetParseError> {
+        ns.parse::<NodeSet<IdRangeList>>().map(|ns| ns.to_string())
+    }
+
+    fn parse_to_vec(ns: &str) -> Result<Vec<String>, NodeSetParseError> {
+        ns.parse::<NodeSet<IdRangeList>>().map(|ns| {
+            let mut r: Vec<_> = ns.iter().collect();
+            r.sort();
+            r
+        })
+    }
 
     #[test]
     fn test_nodeset_empty() {
@@ -562,22 +571,71 @@ mod tests {
         assert_eq!(id1.to_string(), "3,12");
         assert_eq!(id2.to_string(), "0,2-4,6,8,10");
         assert_eq!(id1.intersection(&id2).to_string(), "3");
+
+        assert_eq!(parse_to_vec("[1,2]").unwrap(), vec!["1", "2"]);
     }
 
     #[test]
-    fn test_nodeset_parse_with_suffix() {
-        let id1: NodeSet<IdRangeList> = "a[1-3]_e".parse().unwrap();
-        assert_eq!(id1.to_string(), "a[1-3]_e");
+    fn test_rangeset_nodeset_parse() {
+        assert_eq!(parse_to_vec("1,2a").unwrap(), vec!["1", "2a"]);
+
+        assert_eq!(parse_to_vec("1-2a").unwrap(), vec!["1-2a"]);
+
+        assert_eq!(parse_to_vec("0-4/20a").unwrap(), vec!["0-4/20a"]);
         assert_eq!(
-            id1.iter().collect::<Vec<_>>(),
-            vec!["a1_e", "a2_e", "a3_e",]
+            parse_to_vec("0-4/2,0a").unwrap(),
+            vec!["0", "0a", "2", "4",]
+        );
+    }
+
+    #[test]
+    fn test_nodeset_parse_with_suffix_component() {
+        assert_eq!(parse_to_fold("a[1-3]_e,a4_e").unwrap(), "a[1-4]_e");
+        assert_eq!(
+            parse_to_vec("a[1-3]_e,a4_e").unwrap(),
+            vec!["a1_e", "a2_e", "a3_e", "a4_e"]
         );
 
-        let id2: NodeSet<IdRangeList> = "a[10-11]b[2-3]_cd".parse().unwrap();
-        assert_eq!(id2.to_string(), "a[10-11]b[2-3]_cd");
         assert_eq!(
-            id2.iter().collect::<Vec<_>>(),
+            parse_to_fold("a[10-11]b[2-3]_cd").unwrap(),
+            "a[10-11]b[2-3]_cd"
+        );
+        assert_eq!(
+            parse_to_vec("a[10-11]b[2-3]_cd").unwrap(),
             vec!["a10b2_cd", "a10b3_cd", "a11b2_cd", "a11b3_cd"]
+        );
+    }
+
+    #[test]
+    fn test_nodeset_parse_with_affix_id() {
+        assert_eq!(
+            parse_to_vec("a10[1-3]").unwrap(),
+            vec!["a101", "a102", "a103"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a[1-3]10").unwrap(),
+            vec!["a110", "a210", "a310"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a10[1-3]10").unwrap(),
+            vec!["a10110", "a10210", "a10310"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a00[1-3]00").unwrap(),
+            vec!["a00100", "a00200", "a00300"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a20[0-100/20]5").unwrap(),
+            vec!["a2005", "a201005", "a20205", "a20405", "a20605", "a20805"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a02[0-100/20]05").unwrap(),
+            vec!["a02005", "a0210005", "a022005", "a024005", "a026005", "a028005",]
         );
     }
 
@@ -592,6 +650,61 @@ mod tests {
         let id2: NodeSet<IdRangeList> = "b1 b2".parse().unwrap();
 
         assert!(id1.intersection(&id2).is_empty(),);
+    }
+
+    #[test]
+    fn test_nodeset_overflow() {
+        assert!(parse_to_vec("a10000000000").is_err());
+        assert!(parse_to_vec("a[9999999999-10000000000]").is_err());
+        assert_eq!(parse_to_vec("a3183856184").unwrap(), vec!["a3183856184"]);
+        assert!(parse_to_vec("a03183856185").is_err());
+        assert!(parse_to_vec("a[3183856184-3183856185]").is_err());
+        assert!(parse_to_vec("a00000000000").is_err());
+        assert_eq!(parse_to_vec("a0000000000").unwrap(), vec!["a0000000000"]);
+        assert_eq!(
+            parse_to_vec("a[3183856183-3183856184]").unwrap(),
+            vec!["a3183856183", "a3183856184"]
+        );
+        assert_eq!(
+            parse_to_vec("a[3183856170-3183856184/10]").unwrap(),
+            vec!["a3183856170", "a3183856180"]
+        );
+
+        assert_eq!(
+            parse_to_vec("a[3183856170-3183856184/2000000000]").unwrap(),
+            vec!["a3183856170"]
+        );
+        assert!(parse_to_vec("a[3183856170-3183856184/20000000000]").is_err(),);
+    }
+
+    #[test]
+    fn test_nodeset_overflow_affix() {
+        assert!(parse_to_vec("a10000[0,1]00000").is_err());
+        assert!(parse_to_vec("a00000[0,1]00000").is_err());
+        assert_eq!(
+            parse_to_vec("n000000000[0-0]").unwrap(),
+            vec!["n0000000000"]
+        );
+        assert!(parse_to_vec("n000000000[0-10]").is_err());
+        assert_eq!(
+            parse_to_fold("n00000000[0-10]").unwrap(),
+            "n[000000000-000000009,0000000010]"
+        );
+
+        assert_eq!(
+            parse_to_fold("n31838561[0-84]").unwrap(),
+            "n[318385610-318385619,3183856110-3183856184]"
+        );
+
+        assert_eq!("a318385[0-61]84".parse::<NodeSet>().unwrap().len(), 62);
+        assert!(parse_to_fold("a318385[0-62]84").is_err());
+        assert!(parse_to_fold("a318385[0-61]85").is_err());
+
+        assert_eq!("a[3183855-3183856]84".parse::<NodeSet>().unwrap().len(), 2);
+        assert_eq!(
+            parse_to_vec("a[31838560-31838561]84").unwrap(),
+            vec!["a3183856084", "a3183856184"]
+        );
     }
 
     #[test]
@@ -616,99 +729,107 @@ mod tests {
         let id2: NodeSet<IdRangeList> = "a[0-9]b".parse().unwrap();
         let id3: NodeSet<IdRangeList> = "a[0-9]b[0-8]".parse().unwrap();
         let id4: NodeSet<IdRangeList> = "a[0-10000] b[0-100]".parse().unwrap();
+        let id5: NodeSet<IdRangeList> = "a[00-20]".parse().unwrap();
 
         assert_eq!(id1.len(), 2);
         assert_eq!(id2.len(), 10);
         assert_eq!(id3.len(), 90);
         assert_eq!(id4.len(), 10102);
+        assert_eq!(id5.len(), 21);
     }
 
     #[test]
     fn test_nodeset_fold() {
-        let mut id1: NodeSet<IdRangeList> =
-            "a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2".parse().unwrap();
-        let mut id2: NodeSet<IdRangeList> = "a[0-10]b[0-10],a[0-20]b[0-10]".parse().unwrap();
-        let mut id3: NodeSet<IdRangeList> = "x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]"
-            .parse()
-            .unwrap();
-
-        id1.fold();
-        id2.fold();
-        id3.fold();
-
-        assert_eq!(id1.to_string(), "a[1,3,5,7,9]b[1-7]c[2-3]");
-        assert_eq!(id2.to_string(), "a[0-20]b[0-10]");
-        assert_eq!(id3.to_string(), "x[0-7]y[0-10],x[8-18]y[0-18]");
+        assert_eq!(
+            parse_to_fold("a[1-10/2,5]b[1-7]c3,a[1-10/2,5]b[1-7]c2").unwrap(),
+            "a[1,3,5,7,9]b[1-7]c[2-3]"
+        );
+        assert_eq!(
+            parse_to_fold("a[0-10]b[0-10],a[0-20]b[0-10]").unwrap(),
+            "a[0-20]b[0-10]"
+        );
+        assert_eq!(
+            parse_to_fold("x[0-10]y[0-10],x[8-18]y[8-18],x[11-18]y[0-7]").unwrap(),
+            "x[0-7]y[0-10],x[8-18]y[0-18]"
+        );
     }
 
     #[test]
     fn test_nodeset_iter() {
-        let id1: NodeSet<IdRangeList> = "a[1-2]b[1-2]".parse().unwrap();
-
         assert_eq!(
-            id1.iter().collect::<Vec<_>>(),
-            vec!["a1b1", "a1b2", "a2b1", "a2b2",]
+            parse_to_vec("a[1-2]b[1-2]").unwrap(),
+            vec!["a1b1", "a1b2", "a2b1", "a2b2"]
         );
     }
 
     #[test]
     fn test_nodeset_padded() {
         assert_eq!(
-            "a01 a02 a9 a0 a00 a1 a09 a10"
-                .parse::<NodeSet<IdRangeList>>()
-                .unwrap()
-                .to_string(),
+            parse_to_fold("a01 a02 a9 a0 a00 a1 a09 a10").unwrap(),
             "a[0-1,9,00-02,09-10]"
         );
 
         assert_eq!(
-            "n[001-999] n[1000]"
-                .parse::<NodeSet<IdRangeList>>()
-                .unwrap()
-                .to_string(),
+            parse_to_fold("n[001-999] n[1000]").unwrap(),
             "n[001-999,1000]"
         );
 
         assert_eq!(
-            "n[000-999] n[1000] n1001 n0 n1"
-                .parse::<NodeSet<IdRangeList>>()
-                .unwrap()
-                .to_string(),
+            parse_to_fold("n[000-999] n[1000] n1001 n0 n1").unwrap(),
             "n[0-1,000-999,1000-1001]"
         );
 
         assert_eq!(
-            "n[0000-1000] n[1000-10000] n1001 n1 n00"
-                .parse::<NodeSet<IdRangeList>>()
-                .unwrap()
-                .to_string(),
+            parse_to_fold("n[0000-1000] n[1000-10000] n1001 n1 n00").unwrap(),
             "n[1,00,0000-9999,10000]"
+        );
+
+        assert_eq!(
+            parse_to_fold("n[0000000000-0000000001]").unwrap(),
+            "n[0000000000-0000000001]"
         );
     }
 
     #[test]
     fn test_nodeset_parse_operators() {
         assert_eq!(
-            "node[0-10] - (node[0-5] + node[7-8], node9 node10)"
-                .parse::<NodeSet>()
-                .unwrap()
-                .to_string(),
+            parse_to_fold("node[0-10] - (node[0-5] + node[7-8], node9 node10)").unwrap(),
             "node6"
         );
-        assert_eq!(
-            "node[1-2] ^ node[2-3]"
-                .parse::<NodeSet>()
-                .unwrap()
-                .to_string(),
-            "node[1,3]"
-        );
+        assert_eq!(parse_to_fold("node[1-2] ^ node[2-3]").unwrap(), "node[1,3]");
+        assert_eq!(parse_to_fold("node[1-2]^node[2-3]").unwrap(), "node[1,3]");
+
+        assert_eq!(parse_to_fold("node[1-2] ! node[2-3]").unwrap(), "node1");
+        assert_eq!(parse_to_fold("node[1-2]!node[2-3]").unwrap(), "node1");
+        assert_eq!(parse_to_fold("node[1-2] - node[2-3]").unwrap(), "node1");
 
         assert_eq!(
-            "node[1-2] ! node[2-3]"
-                .parse::<NodeSet>()
-                .unwrap()
-                .to_string(),
-            "node1"
+            parse_to_vec("node[1-2]-node[2-3]").unwrap(),
+            vec!["node1-node2", "node1-node3", "node2-node2", "node2-node3"]
+        );
+    }
+
+    #[test]
+    fn test_rangeset_parse_operators() {
+        assert_eq!(parse_to_fold("[0-10] - ([0-5] + [7-8],9 10)").unwrap(), "6");
+        assert_eq!(parse_to_fold("0-10 - (0-5 + 7-8,9 10)").unwrap(), "6");
+        assert_eq!(parse_to_fold("1-2 ^ 2-3").unwrap(), "1,3");
+        assert_eq!(parse_to_fold("[1-2] ^ [2-3]").unwrap(), "1,3");
+        assert_eq!(parse_to_fold("[1-2]^[2-3]").unwrap(), "1,3");
+        assert_eq!(parse_to_fold("1-2^2-3").unwrap(), "1,3");
+
+        assert_eq!(parse_to_fold("1-2 ! 2-3").unwrap(), "1");
+        assert_eq!(parse_to_fold("[1-2] ! [2-3]").unwrap(), "1");
+        assert_eq!(parse_to_fold("1-2 ! 2-3").unwrap(), "1");
+        assert_eq!(parse_to_fold("[1-2] ! [2-3]").unwrap(), "1");
+        assert_eq!(parse_to_fold("1-2!2-3").unwrap(), "1");
+        assert_eq!(parse_to_fold("[1-2]![2-3]").unwrap(), "1");
+
+        assert_eq!(parse_to_fold("1-2 - 2-3").unwrap(), "1");
+        assert_eq!(parse_to_fold("[1-2] - [2-3]").unwrap(), "1");
+        assert_eq!(
+            parse_to_vec("[1-2]-[2-3]").unwrap(),
+            vec!["1-2", "1-3", "2-2", "2-3"]
         );
     }
 
@@ -728,21 +849,11 @@ mod tests {
 
     #[test]
     fn test_nodeset_multiple_bases() {
-        let id1 = "a1,n[40-41],y[100-101]"
-            .parse::<NodeSet<IdRangeList>>()
-            .unwrap();
-        let mut nodes = id1.iter().collect::<Vec<_>>();
-        nodes.sort();
-        assert_eq!(nodes, vec!["a1", "n40", "n41", "y100", "y101"]);
-
-        let id1 = "a1,a".parse::<NodeSet<IdRangeList>>().unwrap();
-        let mut nodes = id1.iter().collect::<Vec<_>>();
-        nodes.sort();
-        assert_eq!(nodes, vec!["a", "a1"]);
-
-        let id1 = "a1a,a1a1".parse::<NodeSet<IdRangeList>>().unwrap();
-        let mut nodes = id1.iter().collect::<Vec<_>>();
-        nodes.sort();
-        assert_eq!(nodes, vec!["a1a", "a1a1"]);
+        assert_eq!(
+            parse_to_vec("a1,n[40-41],y[100-101],[2-3]y").unwrap(),
+            vec!["2y", "3y", "a1", "n40", "n41", "y100", "y101",]
+        );
+        assert_eq!(parse_to_vec("a1,a, 1a").unwrap(), vec!["1a", "a", "a1"]);
+        assert_eq!(parse_to_vec("a1a,a1a1").unwrap(), vec!["a1a", "a1a1"]);
     }
 }

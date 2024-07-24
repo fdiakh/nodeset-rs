@@ -1,4 +1,5 @@
-use super::{CachedTranslation, IdRange, IdRangeStep, SortedIterator};
+use super::{CachedTranslation, IdRange, IdRangeStep, RankRanges, SortedIterator};
+
 use std::fmt::{self, Debug, Display};
 
 /// A 1D set of indexes stored in a Vec
@@ -214,7 +215,7 @@ impl From<IdRangeStep> for IdRangeList {
             indexes: vec![],
             sorted: true,
         };
-        r.push_idrs(&idrs);
+        r.push_idrs(idrs);
         r
     }
 }
@@ -238,11 +239,18 @@ impl IdRange for IdRangeList {
             sorted: true,
         }
     }
-    fn push_idrs(&mut self, idrs: &IdRangeStep) {
-        let sorted_after = self.sorted && idrs.start_rank() > *self.indexes.last().unwrap_or(&0);
+    fn push_idrs(&mut self, ranges: impl RankRanges) {
+        let sorted_after = self.sorted && ranges.start_rank() > *self.indexes.last().unwrap_or(&0);
 
-        for (start, end, step) in idrs.rank_ranges() {
-            self.indexes.extend((start..end + 1).step_by(step));
+        for (start, end, step) in ranges.rank_ranges() {
+            if end != u32::MAX {
+                self.indexes.extend((start..end + 1).step_by(step as usize));
+            } else {
+                // For some reason extending using an iterator built with ..= is
+                // much slower so we only use it for u32::MAX
+                self.indexes
+                    .extend((start..=u32::MAX).step_by(step as usize));
+            }
         }
 
         if self.sorted && !sorted_after {

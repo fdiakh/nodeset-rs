@@ -1,6 +1,6 @@
 # Description
 
-`ns` is a Rust library and command-line tool that deals with nodesets. It is
+`nodeset` is a Rust library and command-line tool (`ns`) that deals with nodesets. It is
 heavily inspired by [clustershell](https://cea-hpc.github.io/clustershell/) and
 aims at supporting the same nodeset representation.
 
@@ -50,7 +50,7 @@ description of the configuration files syntax.
 To compute and display the intersection of two nodesets
 
 ```rust
-    use ns::NodeSet;
+    use nodeset::NodeSet;
 
     let ns1: NodeSet = "node[01-15]".parse().unwrap();
     let ns2: NodeSet = "node[10-30/2]".parse().unwrap();

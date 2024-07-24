@@ -651,7 +651,7 @@ mod tests {
         };
         idset.prepare_sort();
         idset.minimal_split();
-        println!("{:?}", idset);
+
         assert_eq!(idset.products.len(), 5);
         assert_eq!(
             idset.products[0],

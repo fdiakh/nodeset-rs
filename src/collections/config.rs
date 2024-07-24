@@ -34,7 +34,7 @@ static CONFIG_PATHS: &[&str] = &[
 /// setup to read group sources from the default configuration file as follows:
 ///
 /// ```rust
-/// use ns::{NodeSet, Resolver};
+/// use nodeset::{NodeSet, Resolver};
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     Resolver::set_global(Resolver::from_config()?);
@@ -177,14 +177,12 @@ impl Resolver {
     pub fn list_all_groups<T: IdRange + PartialEq + Clone + Display + Debug>(
         &self,
     ) -> impl Iterator<Item = (&str, NodeSet<T>)> {
-        self.sources
-            .iter()
-            .map(|(source, groups)| {
-                (
-                    source.as_str(),
-                    Parser::default().parse(&groups.list()).unwrap_or_default(),
-                )
-            })
+        self.sources.iter().map(|(source, groups)| {
+            (
+                source.as_str(),
+                Parser::default().parse(&groups.list()).unwrap_or_default(),
+            )
+        })
     }
 
     /// List all sources
@@ -197,7 +195,7 @@ impl Resolver {
         &self.default_source
     }
 
-    fn add_sources(
+    pub(crate) fn add_sources(
         &mut self,
         sources: impl IntoIterator<Item = (String, impl GroupSource + 'static)>,
     ) {
@@ -256,7 +254,7 @@ fn find_files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
 }
 
 /// Trait for group resolution features of a group source
-trait GroupSource: Debug + Send + Sync {
+pub(crate) trait GroupSource: Debug + Send + Sync {
     fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError>;
     fn list(&self) -> String;
 }
@@ -582,6 +580,37 @@ impl GroupSource for StaticGroupSource {
     fn list(&self) -> String {
         use itertools::Itertools;
         self.groups.keys().join(" ")
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct DummySource {
+    map: HashMap<String, String>,
+}
+#[cfg(test)]
+impl DummySource {
+    pub(crate) fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn add(&mut self, group: &str, nodes: &str) {
+        self.map.insert(group.to_string(), nodes.to_string());
+    }
+}
+
+#[cfg(test)]
+impl GroupSource for DummySource {
+    fn map(&self, group: &str) -> Result<Option<String>, NodeSetParseError> {
+        Ok(self.map.get(group).cloned())
+    }
+
+    fn list(&self) -> String {
+        use itertools::Itertools;
+
+        self.map.keys().join(" ")
     }
 }
 
