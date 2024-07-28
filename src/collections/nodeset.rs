@@ -5,7 +5,7 @@ use crate::idrange::IdRange;
 use crate::idrange::RangeStepError;
 use crate::Resolver;
 use crate::{IdSet, IdSetIter};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// An unordered collection of nodes indexed in one or more dimensions.
@@ -20,7 +20,7 @@ use std::fmt;
 /// more efficient especially for one-dimensional NodeSets.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct NodeSet<T = crate::IdRangeList> {
-    pub(crate) bases: HashMap<NodeSetDimensions, IdSetKind<T>>,
+    pub(crate) bases: BTreeMap<NodeSetDimensions, IdSetKind<T>>,
     lazy: bool,
 }
 
@@ -40,7 +40,7 @@ impl NodeSet<crate::IdRangeList> {
 impl<T> Default for NodeSet<T> {
     fn default() -> Self {
         Self {
-            bases: HashMap::new(),
+            bases: BTreeMap::new(),
             lazy: false,
         }
     }
@@ -52,7 +52,7 @@ where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
     dim_iter:
-        std::iter::Peekable<std::collections::hash_map::Iter<'a, NodeSetDimensions, IdSetKind<T>>>,
+        std::iter::Peekable<std::collections::btree_map::Iter<'a, NodeSetDimensions, IdSetKind<T>>>,
     set_iter: IdSetIterKind<'a, T>,
     cache: Option<CachedTranslation>,
 }
@@ -71,7 +71,7 @@ impl<'b, T> NodeSetIter<'b, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,
 {
-    fn new(dims: &'b HashMap<NodeSetDimensions, IdSetKind<T>>) -> Self {
+    fn new(dims: &'b BTreeMap<NodeSetDimensions, IdSetKind<T>>) -> Self {
         let mut it = Self {
             dim_iter: dims.iter().peekable(),
             set_iter: IdSetIterKind::None,
@@ -244,7 +244,7 @@ where
 
     /// Returns a new set containing elements found in `self` but not in `other`
     pub fn difference(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
+        let mut dimnames = BTreeMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.bases.iter() {
             if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
@@ -274,7 +274,7 @@ where
 
     /// Returns a new set containing elements that are in both `self` and `other`
     pub fn intersection(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
+        let mut dimnames = BTreeMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.bases.iter() {
             if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
@@ -305,7 +305,7 @@ where
 
     /// Returns a new set containing the elements found in either `self` or `other` but not in both
     pub fn symmetric_difference(&self, other: &Self) -> Self {
-        let mut dimnames = HashMap::<NodeSetDimensions, IdSetKind<T>>::new();
+        let mut dimnames = BTreeMap::<NodeSetDimensions, IdSetKind<T>>::new();
         for (dimname, set) in self.bases.iter() {
             if let Some(oset) = other.bases.get(dimname) {
                 match (set, oset) {
@@ -338,7 +338,7 @@ where
     }
 
     /// Create a NodeSet from a mapping of NodeSetDimensions to IdSets
-    fn from_dims(dimnames: HashMap<NodeSetDimensions, IdSetKind<T>>, lazy: bool) -> Self {
+    fn from_dims(dimnames: BTreeMap<NodeSetDimensions, IdSetKind<T>>, lazy: bool) -> Self {
         let mut res = NodeSet {
             bases: dimnames,
             lazy,
@@ -355,7 +355,7 @@ where
     /// operation
     pub(crate) fn lazy() -> Self {
         NodeSet {
-            bases: HashMap::new(),
+            bases: BTreeMap::new(),
             lazy: true,
         }
     }
@@ -383,7 +383,7 @@ impl From<CustomError<&str>> for NodeSetParseError {
 }
 
 /// List of names for each dimension of a NodeSet along with an optional suffix
-#[derive(PartialEq, Eq, Hash, Clone, Default, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Default, Debug)]
 pub(crate) struct NodeSetDimensions {
     /// The names associated with each dimension of a nodeset
     dimnames: Vec<String>,
@@ -855,5 +855,17 @@ mod tests {
         );
         assert_eq!(parse_to_vec("a1,a, 1a").unwrap(), vec!["1a", "a", "a1"]);
         assert_eq!(parse_to_vec("a1a,a1a1").unwrap(), vec!["a1a", "a1a1"]);
+    }
+
+    #[test]
+    fn test_nodeset_sorted() {
+        assert_eq!(
+            "h1,z,a2,a0a,a1a1"
+                .parse::<NodeSet>()
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            vec!["a2", "a1a1", "a0a", "h1", "z"]
+        );
     }
 }
