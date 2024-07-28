@@ -150,7 +150,7 @@ impl<'a> Parser<'a> {
     {
         map_res(
             pair(
-                alt((Self::id_range_step_rangeset, Self::id_range_bracketed_affix)),
+                alt((Self::id_range_bracketed_affix, Self::id_range_step_rangeset)),
                 peek(alt((is_a(" ,&!^()"), eof))),
             ),
             |(idrs, _)| {

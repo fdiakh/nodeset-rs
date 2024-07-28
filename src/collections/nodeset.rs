@@ -576,6 +576,18 @@ mod tests {
     }
 
     #[test]
+    fn test_rangeset_parse_affix() {
+        assert_eq!(parse_to_vec("50[01,20]").unwrap(), vec!["5001", "5020"]);
+        assert_eq!(parse_to_vec("[01,2]50").unwrap(), vec!["0150", "250"]);
+        assert_eq!(
+            parse_to_vec("05[1,10]05").unwrap(),
+            vec!["051005", "05105",]
+        );
+        assert!(parse_to_vec("05[1,10]05[0]").is_err());
+        assert!(parse_to_vec("[1][0]").is_err());
+    }
+
+    #[test]
     fn test_rangeset_nodeset_parse() {
         assert_eq!(parse_to_vec("1,2a").unwrap(), vec!["1", "2a"]);
 
