@@ -28,7 +28,7 @@ fn is_nodeset_char(c: char) -> bool {
 }
 
 fn is_source_char(c: char) -> bool {
-    char::is_alphabetic(c) || ['-', '_', '.', '/'].contains(&c)
+    char::is_alphabetic(c) || ['-', '_', '.', '/', '+'].contains(&c)
 }
 
 /// Parse strings into nodesets
@@ -90,7 +90,7 @@ impl<'a> Parser<'a> {
                         };
 
                         match op {
-                            ',' | '+' | ' ' => {
+                            ',' | ' ' => {
                                 ns.extend_from_nodeset(&t.0);
                             }
                             '!' | '-' => {
@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
 
     fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
         alt((
-            delimited(multispace0, one_of("+,&!^"), multispace0),
+            delimited(multispace0, one_of(",&!^"), multispace0),
             delimited(multispace1, one_of("-"), multispace1),
             value(' ', multispace1),
         ))(i)
@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
         map_res(
             pair(
                 alt((Self::id_range_step_rangeset, Self::id_range_bracketed_affix)),
-                peek(alt((is_a(" +,&!^()"), eof))),
+                peek(alt((is_a(" ,&!^()"), eof))),
             ),
             |(idrs, _)| {
                 let mut ns = NodeSet::lazy();
@@ -734,7 +734,7 @@ mod tests {
     fn test_component(parser: impl Fn(&str) -> IResult<&str, &str, CustomError<&str>>) {
         assert_eq!(parser("abcd efg").unwrap(), (" efg", "abcd"));
         assert!(parser(" abcdefg").is_err());
-        assert_eq!(parser("a_b-c.d2efg").unwrap(), ("2efg", "a_b-c.d"));
+        assert_eq!(parser("a_b-c.d+j/2efg").unwrap(), ("2efg", "a_b-c.d+j/"));
         assert!(parser("0ef").is_err());
     }
 

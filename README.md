@@ -33,7 +33,7 @@ $ ns count r[2-4/2]esw1-port[23-24]
 ```
 * Algebraic operations using operators:
 ```bash
-$ ns fold 'node[0-10] - (node[0-5] + node[7-10])'
+$ ns fold 'node[0-10] - (node[0-5] node[7-10])'
 node6
 
 $ ns fold 'node[1-2] ^ node[2-3]'
