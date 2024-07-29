@@ -40,6 +40,9 @@ enum Commands {
         /// List groups from all sources
         #[arg(short)]
         all_sources: bool,
+        /// List groups from the specified source
+        #[arg(short, conflicts_with("all_sources"))]
+        source: Option<String>,
         /// Display group members
         #[arg(short)]
         members: bool,
@@ -83,6 +86,7 @@ fn main() -> Result<()> {
         Commands::Groups {
             all_sources,
             members,
+            source,
             nodeset,
         } => {
             let nodeset = if nodeset.is_some() {
@@ -90,7 +94,7 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            group_cmd(all_sources, members, nodeset);
+            group_cmd(all_sources, source, members, nodeset);
         }
         Commands::Sources {} => {
             let resolver = Resolver::get_global();
@@ -112,7 +116,12 @@ fn main() -> Result<()> {
 }
 
 #[auto_enum]
-fn group_cmd(all: bool, display_members: bool, filter: Option<NodeSet>) {
+fn group_cmd(
+    all: bool,
+    default_source: Option<String>,
+    display_members: bool,
+    filter: Option<NodeSet>,
+) {
     let resolver = Resolver::get_global();
 
     let all_groups;
@@ -133,8 +142,10 @@ fn group_cmd(all: bool, display_members: bool, filter: Option<NodeSet>) {
             groups.iter().map(move |group| (source, group))
         })
     } else {
-        groups = resolver.list_groups::<IdRangeList>(None);
-        groups.iter().map(|group| (None, group))
+        groups = resolver.list_groups::<IdRangeList>(default_source.as_deref());
+        groups
+            .iter()
+            .map(|group| (default_source.as_deref(), group))
     };
 
     let s = iter
