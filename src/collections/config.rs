@@ -678,6 +678,18 @@ mod tests {
         let ns1 = parser.parse::<IdRangeList>("@network:net[1,3]").unwrap();
         let ns2 = "node[10-19,30-39]".parse().unwrap();
         assert_eq!(ns1, ns2);
+
+        assert_eq!(
+            resolver.list_groups::<IdRangeList>(Some("numerical")),
+            "1-2,03".parse::<NodeSet>().unwrap()
+        );
+
+        assert_eq!(
+            resolver
+                .resolve::<IdRangeList>(Some("numerical"), "1")
+                .unwrap(),
+            "node[10-19]".parse::<NodeSet>().unwrap()
+        );
     }
 
     #[test]
@@ -742,7 +754,14 @@ mod tests {
 
         assert_eq!(
             resolver.list_groups::<IdRangeList>(Some("local")),
-            "compute,gpu,all,adm,io,mds,oss".parse::<NodeSet>().unwrap()
+            "compute,gpu,all,adm,io,mds,oss,[1-2],03"
+                .parse::<NodeSet>()
+                .unwrap()
+        );
+
+        assert_eq!(
+            resolver.resolve::<IdRangeList>(Some("local"), "1").unwrap(),
+            "example[32-33]".parse::<NodeSet>().unwrap()
         );
 
         assert_eq!(

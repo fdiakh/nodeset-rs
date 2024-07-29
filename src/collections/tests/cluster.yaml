@@ -34,3 +34,8 @@ network:
     net1: node[10-19]
     net2: node[20-29]
     net3: node[30-39]
+
+numerical:
+    "1": node[10-19]
+    "2": node[20-29]
+    "03": node[30-39]

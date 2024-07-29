@@ -144,6 +144,13 @@ impl<'a> Parser<'a> {
         alt((Self::rangeset, Self::nodeset, |i| self.group(i)))(i)
     }
 
+    fn nodeset_or_rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    where
+        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
+    {
+        alt((Self::nodeset, Self::rangeset))(i)
+    }
+
     fn rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
@@ -151,7 +158,7 @@ impl<'a> Parser<'a> {
         map_res(
             pair(
                 alt((Self::id_range_bracketed_affix, Self::id_range_step_rangeset)),
-                peek(alt((is_a(" ,&!^()"), eof))),
+                peek(alt((is_a(",&!^()"), multispace1, eof))),
             ),
             |(idrs, _)| {
                 let mut ns = NodeSet::lazy();
@@ -278,7 +285,7 @@ impl<'a> Parser<'a> {
                     alt((
                         map(tag("*"), |_| (None, None)),
                         |s| self.group_with_source(s),
-                        map(Self::nodeset, |s: NodeSet<T>| (None, Some(s))),
+                        map(Self::nodeset_or_rangeset, |s: NodeSet<T>| (None, Some(s))),
                     )),
                     |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
                         let mut ns = NodeSet::lazy();
@@ -332,7 +339,7 @@ impl<'a> Parser<'a> {
                 (Some(source.0), None)
             }),
             map(
-                separated_pair(Self::sourceset, char(':'), opt(Self::nodeset)),
+                separated_pair(Self::sourceset, char(':'), opt(Self::nodeset_or_rangeset)),
                 |source| (Some(source.0), Some(source.1.unwrap_or_default())),
             ),
         ))(i)
@@ -747,6 +754,9 @@ mod tests {
         source.add("group:1", "a4, a5");
         source.add("group:2", "a5, a6");
         source.add("group:suffix", "a7,a8");
+        source.add("2", "a10,a11");
+        source.add("3", "a12,a13");
+        source.add("04", "a14,a15");
         resolver.add_sources(vec![("source".to_string(), source)]);
 
         let parser = Parser::with_resolver(&resolver, None);
@@ -799,6 +809,26 @@ mod tests {
                 .iter()
                 .join(","),
             "a7,a8"
+        );
+
+        assert_eq!(
+            parser
+                .group::<crate::IdRangeList>("@source:[2-3]")
+                .unwrap()
+                .1
+                .iter()
+                .join(","),
+            "a10,a11,a12,a13"
+        );
+
+        assert_eq!(
+            parser
+                .group::<crate::IdRangeList>("@source:04")
+                .unwrap()
+                .1
+                .iter()
+                .join(","),
+            "a14,a15"
         );
     }
 }
