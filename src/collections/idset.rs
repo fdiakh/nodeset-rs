@@ -67,11 +67,11 @@ where
         let coords = &mut self.coords;
         let mut refill = false;
 
-        if let Some(&coord) = self.iters.last_mut()?.next() {
+        if let Some(coord) = self.iters.last_mut()?.next() {
             coords[self.ranges.len() - 1] = coord;
         } else {
             *self.iters.last_mut().unwrap() = self.ranges.last()?.iter().peekable();
-            coords[self.ranges.len() - 1] = *self.iters.last_mut()?.next().unwrap();
+            coords[self.ranges.len() - 1] = self.iters.last_mut()?.next().unwrap();
             refill = true;
         }
 
@@ -80,12 +80,12 @@ where
                 self.iters[i].next();
             }
 
-            if let Some(&&coord) = self.iters[i].peek() {
+            if let Some(&coord) = self.iters[i].peek() {
                 coords[i] = coord;
                 refill = false
             } else {
                 self.iters[i] = self.ranges[i].iter().peekable();
-                coords[i] = **self.iters[i].peek().unwrap();
+                coords[i] = *self.iters[i].peek().unwrap();
             }
         }
 
@@ -281,7 +281,7 @@ where
                     first_range = false;
                     for n in rng.iter() {
                         self.products.push(IdRangeProduct {
-                            ranges: vec![T::from(*n)],
+                            ranges: vec![T::from(n)],
                         });
                     }
                 } else {
@@ -296,7 +296,7 @@ where
                         for sp in
                             self.products[start + i * count..start + (i + 1) * count].iter_mut()
                         {
-                            sp.ranges.push(T::from(*r));
+                            sp.ranges.push(T::from(r));
                         }
                     }
                 }

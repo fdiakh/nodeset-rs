@@ -20,19 +20,20 @@ impl From<Vec<u32>> for IdRangeTree {
     }
 }
 
-impl SortedIterator for btree_set::Union<'_, u32> {}
-impl SortedIterator for btree_set::Difference<'_, u32> {}
-impl SortedIterator for btree_set::Intersection<'_, u32> {}
-impl SortedIterator for btree_set::SymmetricDifference<'_, u32> {}
+impl SortedIterator for <IdRangeTree as IdRange>::SelfIter<'_> {}
+impl SortedIterator for <IdRangeTree as IdRange>::IntersectionIter<'_> {}
+impl SortedIterator for <IdRangeTree as IdRange>::SymmetricDifferenceIter<'_> {}
+impl SortedIterator for <IdRangeTree as IdRange>::DifferenceIter<'_> {}
+impl SortedIterator for <IdRangeTree as IdRange>::UnionIter<'_> {}
 
 impl IdRange for IdRangeTree {
-    type SelfIter<'a> = btree_set::Iter<'a, u32>;
-    type DifferenceIter<'a> = btree_set::Difference<'a, u32>;
-    type SymmetricDifferenceIter<'a> = btree_set::SymmetricDifference<'a, u32>;
-    type IntersectionIter<'a> = btree_set::Intersection<'a, u32>;
-    type UnionIter<'a> = btree_set::Union<'a, u32>;
+    type SelfIter<'a> = std::iter::Copied<btree_set::Iter<'a, u32>>;
+    type DifferenceIter<'a> = std::iter::Copied<btree_set::Difference<'a, u32>>;
+    type SymmetricDifferenceIter<'a> = std::iter::Copied<btree_set::SymmetricDifference<'a, u32>>;
+    type IntersectionIter<'a> = std::iter::Copied<btree_set::Intersection<'a, u32>>;
+    type UnionIter<'a> = std::iter::Copied<btree_set::Union<'a, u32>>;
 
-    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32>) -> IdRangeTree {
+    fn from_sorted(indexes: impl IntoIterator<Item = u32>) -> IdRangeTree {
         let mut bt = BTreeSet::new();
         bt.extend(indexes);
         IdRangeTree { indexes: bt }
@@ -45,21 +46,21 @@ impl IdRange for IdRangeTree {
     }
 
     fn difference<'a>(&'a self, other: &'a Self) -> Self::DifferenceIter<'a> {
-        self.indexes.difference(&other.indexes)
+        self.indexes.difference(&other.indexes).copied()
     }
 
     fn symmetric_difference<'a>(&'a self, other: &'a Self) -> Self::SymmetricDifferenceIter<'a> {
-        self.indexes.symmetric_difference(&other.indexes)
+        self.indexes.symmetric_difference(&other.indexes).copied()
     }
 
     fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a> {
-        self.indexes.intersection(&other.indexes)
+        self.indexes.intersection(&other.indexes).copied()
     }
     fn union<'a>(&'a self, other: &'a Self) -> Self::UnionIter<'a> {
-        self.indexes.union(&other.indexes)
+        self.indexes.union(&other.indexes).copied()
     }
     fn iter(&self) -> Self::SelfIter<'_> {
-        self.indexes.iter()
+        self.indexes.iter().copied()
     }
     fn contains(&self, id: u32) -> bool {
         self.indexes.contains(&id)
@@ -137,7 +138,7 @@ pub mod tests {
         let rl2 = IdRangeTree {
             indexes: bt_from_vec(b),
         };
-        assert_eq!(rl1.union(&rl2).copied().collect::<Vec<u32>>(), c);
+        assert_eq!(rl1.union(&rl2).collect::<Vec<u32>>(), c);
     }
 
     fn validate_rangetree_symdiff_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
@@ -148,12 +149,7 @@ pub mod tests {
         let rl2 = IdRangeTree {
             indexes: bt_from_vec(b),
         };
-        assert_eq!(
-            rl1.symmetric_difference(&rl2)
-                .cloned()
-                .collect::<Vec<u32>>(),
-            c
-        );
+        assert_eq!(rl1.symmetric_difference(&rl2).collect::<Vec<u32>>(), c);
     }
 
     fn validate_rangetree_intersection_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
@@ -164,7 +160,7 @@ pub mod tests {
         let rl2 = IdRangeTree {
             indexes: bt_from_vec(b),
         };
-        assert_eq!(rl1.intersection(&rl2).cloned().collect::<Vec<u32>>(), c);
+        assert_eq!(rl1.intersection(&rl2).collect::<Vec<u32>>(), c);
     }
     #[test]
     fn rangetree_union() {
@@ -216,23 +212,17 @@ pub mod tests {
         let mut rl2 = IdRangeTree {
             indexes: bt_from_vec(vec![1, 3]),
         };
-        assert_eq!(rl1.difference(&rl2).cloned().collect::<Vec<u32>>(), vec![2]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![2]);
 
         rl2 = IdRangeTree {
             indexes: bt_from_vec(vec![]),
         };
-        assert_eq!(
-            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
-            vec![1, 2, 3]
-        );
-        assert_eq!(rl2.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![1, 2, 3]);
+        assert_eq!(rl2.difference(&rl1).collect::<Vec<u32>>(), vec![]);
         rl2 = IdRangeTree {
             indexes: bt_from_vec(vec![4, 5, 6]),
         };
-        assert_eq!(
-            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
-            vec![1, 2, 3]
-        );
-        assert_eq!(rl1.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![1, 2, 3]);
+        assert_eq!(rl1.difference(&rl1).collect::<Vec<u32>>(), vec![]);
     }
 }

@@ -120,8 +120,8 @@ where
                         let cache = self
                             .cache
                             .as_ref()
-                            .map(|c| c.interpolate(*coord))
-                            .unwrap_or_else(|| CachedTranslation::new(*coord));
+                            .map(|c| c.interpolate(coord))
+                            .unwrap_or_else(|| CachedTranslation::new(coord));
 
                         let mut res = String::with_capacity(
                             dim.dimnames.iter().map(|s| s.len()).sum::<usize>()

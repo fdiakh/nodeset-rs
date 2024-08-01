@@ -10,20 +10,20 @@ pub trait SortedIterator: Iterator {}
 
 /// Interface for a 1-dimensional range of integers
 pub trait IdRange: From<Vec<u32>> + From<u32> {
-    type SelfIter<'a>: Iterator<Item = &'a u32> + Clone + fmt::Debug
+    type SelfIter<'a>: Iterator<Item = u32> + Clone + fmt::Debug
     where
         Self: 'a;
 
-    type DifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
+    type DifferenceIter<'a>: Iterator<Item = u32> + SortedIterator
     where
         Self: 'a;
-    type SymmetricDifferenceIter<'a>: Iterator<Item = &'a u32> + SortedIterator
+    type SymmetricDifferenceIter<'a>: Iterator<Item = u32> + SortedIterator
     where
         Self: 'a;
-    type IntersectionIter<'a>: Iterator<Item = &'a u32> + SortedIterator
+    type IntersectionIter<'a>: Iterator<Item = u32> + SortedIterator
     where
         Self: 'a;
-    type UnionIter<'a>: Iterator<Item = &'a u32> + SortedIterator
+    type UnionIter<'a>: Iterator<Item = u32> + SortedIterator
     where
         Self: 'a;
     fn new() -> Self;
@@ -78,7 +78,7 @@ pub trait IdRange: From<Vec<u32>> + From<u32> {
     fn len(&self) -> usize;
 
     /// Extends the range with elements from the given iterator
-    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32> + SortedIterator) -> Self;
+    fn from_sorted(indexes: impl IntoIterator<Item = u32> + SortedIterator) -> Self;
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

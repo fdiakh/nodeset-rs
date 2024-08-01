@@ -44,9 +44,9 @@ impl SortedIterator for VecSymDifference<'_, u32> {}
 
 impl<'a, T> Iterator for VecDifference<'a, T>
 where
-    T: Ord + Debug,
+    T: Ord + Debug + Copy,
 {
-    type Item = &'a T;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut next = match self.a.next() {
@@ -57,9 +57,9 @@ where
         let mut min: &T;
         loop {
             min = match self.b.peek() {
-                None => return Some(next),
+                None => return Some(*next),
                 Some(v) if *v == next => v,
-                Some(v) if *v > next => return Some(next),
+                Some(v) if *v > next => return Some(*next),
                 _ => {
                     self.b.next();
                     continue;
@@ -78,9 +78,9 @@ where
 
 impl<'a, T> Iterator for VecIntersection<'a, T>
 where
-    T: Ord + Debug,
+    T: Ord + Debug + Copy,
 {
-    type Item = &'a T;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         while !self.a.is_empty() && !self.b.is_empty() {
@@ -95,7 +95,7 @@ where
                 std::cmp::Ordering::Equal => {
                     self.a = &self.a[1..];
                     self.b = &self.b[1..];
-                    return first_a;
+                    return first_a.copied();
                 }
                 std::cmp::Ordering::Greater => {
                     self.b = &self.b[exponential_search_idx(self.b, first_a.unwrap())..];
@@ -109,9 +109,9 @@ where
 
 impl<'a, T> Iterator for VecUnion<'a, T>
 where
-    T: Ord + Debug,
+    T: Ord + Debug + Copy,
 {
-    type Item = &'a T;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let first_a = self.a.first();
@@ -119,12 +119,12 @@ where
 
         if first_a.is_some() && (first_a <= first_b || first_b.is_none()) {
             self.a = &self.a[1..];
-            return first_a;
+            return first_a.copied();
         }
 
         if first_b.is_some() {
             self.b = &self.b[1..];
-            return first_b;
+            return first_b.copied();
         }
 
         None
@@ -133,9 +133,9 @@ where
 
 impl<'a, T> Iterator for VecSymDifference<'a, T>
 where
-    T: Ord + Debug,
+    T: Ord + Debug + Copy,
 {
-    type Item = &'a T;
+    type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut first_a = self.a.first();
@@ -151,10 +151,10 @@ where
 
         if first_a.is_some() && (first_a < first_b || first_b.is_none()) {
             self.a = &self.a[1..];
-            return first_a;
+            return first_a.copied();
         }
         self.b = &self.b[1..];
-        first_b
+        first_b.copied()
     }
 }
 
@@ -225,10 +225,11 @@ impl IdRange for IdRangeList {
     type IntersectionIter<'a> = VecIntersection<'a, u32>;
     type UnionIter<'a> = VecUnion<'a, u32>;
     type SymmetricDifferenceIter<'a> = VecSymDifference<'a, u32>;
-    type SelfIter<'a> = std::slice::Iter<'a, u32>;
-    fn from_sorted<'b>(indexes: impl IntoIterator<Item = &'b u32>) -> IdRangeList {
+    type SelfIter<'a> = std::iter::Copied<std::slice::Iter<'a, u32>>;
+
+    fn from_sorted(indexes: impl IntoIterator<Item = u32>) -> IdRangeList {
         IdRangeList {
-            indexes: indexes.into_iter().cloned().collect(),
+            indexes: indexes.into_iter().collect(),
             sorted: true,
         }
     }
@@ -288,7 +289,7 @@ impl IdRange for IdRangeList {
     }
 
     fn iter(&self) -> Self::SelfIter<'_> {
-        self.indexes.iter()
+        self.indexes.iter().copied()
     }
 
     fn intersection<'a>(&'a self, other: &'a Self) -> Self::IntersectionIter<'a> {
@@ -393,7 +394,7 @@ pub mod tests {
             indexes: b,
             sorted: true,
         };
-        assert_eq!(rl1.union(&rl2).copied().collect::<Vec<u32>>(), c);
+        assert_eq!(rl1.union(&rl2).collect::<Vec<u32>>(), c);
     }
 
     fn validate_rangelist_symdiff_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
@@ -406,12 +407,7 @@ pub mod tests {
             indexes: b,
             sorted: true,
         };
-        assert_eq!(
-            rl1.symmetric_difference(&rl2)
-                .cloned()
-                .collect::<Vec<u32>>(),
-            c
-        );
+        assert_eq!(rl1.symmetric_difference(&rl2).collect::<Vec<u32>>(), c);
     }
 
     fn validate_rangelist_intersection_result(a: Vec<u32>, b: Vec<u32>, c: Vec<u32>) {
@@ -424,7 +420,7 @@ pub mod tests {
             indexes: b,
             sorted: true,
         };
-        assert_eq!(rl1.intersection(&rl2).cloned().collect::<Vec<u32>>(), c);
+        assert_eq!(rl1.intersection(&rl2).collect::<Vec<u32>>(), c);
     }
     #[test]
     fn rangelist_union() {
@@ -478,26 +474,20 @@ pub mod tests {
             indexes: vec![1, 3],
             sorted: true,
         };
-        assert_eq!(rl1.difference(&rl2).cloned().collect::<Vec<u32>>(), vec![2]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![2]);
 
         rl2 = IdRangeList {
             indexes: vec![],
             sorted: true,
         };
-        assert_eq!(
-            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
-            vec![1, 2, 3]
-        );
-        assert_eq!(rl2.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![1, 2, 3]);
+        assert_eq!(rl2.difference(&rl1).collect::<Vec<u32>>(), vec![]);
         rl2 = IdRangeList {
             indexes: vec![4, 5, 6],
             sorted: true,
         };
-        assert_eq!(
-            rl1.difference(&rl2).cloned().collect::<Vec<u32>>(),
-            vec![1, 2, 3]
-        );
-        assert_eq!(rl1.difference(&rl1).cloned().collect::<Vec<u32>>(), vec![]);
+        assert_eq!(rl1.difference(&rl2).collect::<Vec<u32>>(), vec![1, 2, 3]);
+        assert_eq!(rl1.difference(&rl1).collect::<Vec<u32>>(), vec![]);
     }
 
     #[test]
