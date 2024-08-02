@@ -6,6 +6,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fdiakh/nodeset-rs"
 keywords = ["nodeset", "hostlist", "cluster", "hpc"]
+categories = ["command-line-utilities"]
+description = "NodeSet management library"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
