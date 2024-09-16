@@ -1,3 +1,6 @@
+[![crates.io](https://img.shields.io/crates/v/nodeset.svg)](https://crates.io/crates/nodeset)
+[![docs.rs](https://docs.rs/nodeset/badge.svg)](https://docs.rs/nodeset)
+
 # Description
 
 `nodeset` is a Rust library and command-line tool (`ns`) that deals with nodesets. It is
