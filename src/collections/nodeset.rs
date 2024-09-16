@@ -369,7 +369,7 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let resolver = Resolver::get_global();
-        Parser::with_resolver(resolver.as_ref(), None).parse::<T>(s)
+        Parser::with_resolver(resolver, None).parse::<T>(s)
     }
 }
 

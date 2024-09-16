@@ -15,11 +15,10 @@ use std::io::BufReader;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::OnceLock;
 
 /// The default resolver used to parse NodeSet using the FromStr trait
-static GLOBAL_RESOLVER: RwLock<Option<Arc<Resolver>>> = RwLock::new(None);
+static GLOBAL_RESOLVER: OnceLock<Resolver> = OnceLock::new();
 
 /// Default group configuration paths
 static CONFIG_PATHS: &[&str] = &[
@@ -37,7 +36,7 @@ static CONFIG_PATHS: &[&str] = &[
 /// use nodeset::{NodeSet, Resolver};
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     Resolver::set_global(Resolver::from_config()?);
+///     Resolver::set_global(Resolver::from_config()?).unwrap();
 ///
 ///     let ns: NodeSet = "@group".parse()?;
 ///
@@ -117,18 +116,21 @@ impl Resolver {
     }
 
     /// Set the global resolver to use for parsing NodeSet using the FromStr trait
-    pub fn set_global(resolver: Resolver) {
-        *GLOBAL_RESOLVER.write().unwrap() = Some(Arc::new(resolver));
+    ///
+    /// Returns an error if the global resolver is already set
+    pub fn set_global(resolver: Resolver) -> Result<(), Resolver> {
+        GLOBAL_RESOLVER.set(resolver)?;
+
+        Ok(())
     }
 
     /// Get the global resolver
-    pub fn get_global() -> Arc<Resolver> {
+    pub fn get_global() -> &'static Resolver {
+        static DEFAULT_RESOLVER: OnceLock<Resolver> = OnceLock::new();
+
         GLOBAL_RESOLVER
-            .read()
-            .unwrap()
-            .as_ref()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(Resolver::default()))
+            .get()
+            .unwrap_or(DEFAULT_RESOLVER.get_or_init(Resolver::default))
     }
 
     /// Resolve a group name to a NodeSet

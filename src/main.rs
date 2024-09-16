@@ -53,7 +53,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     env_logger::init();
-    Resolver::set_global(Resolver::from_config()?);
+    Resolver::set_global(Resolver::from_config()?).unwrap();
     use std::io::Write;
     let args = Cli::parse();
     match args.command {
