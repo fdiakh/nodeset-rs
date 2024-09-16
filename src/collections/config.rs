@@ -33,7 +33,7 @@ static CONFIG_PATHS: &[&str] = &[
 /// The FromStr implementation of NodeSet uses the global resolver which can be
 /// setup to read group sources from the default configuration file as follows:
 ///
-/// ```rust
+/// ```rust,no_run
 /// use nodeset::{NodeSet, Resolver};
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
