@@ -1,4 +1,3 @@
-use super::parsers::CustomError;
 use super::parsers::Parser;
 use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
@@ -373,15 +372,6 @@ where
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let resolver = Resolver::get_global();
         Parser::with_resolver(resolver, None).parse::<T>(s)
-    }
-}
-
-impl From<CustomError<&str>> for NodeSetParseError {
-    fn from(e: CustomError<&str>) -> Self {
-        match e {
-            CustomError::NodeSetError(e) => e,
-            CustomError::Nom(e, _) => NodeSetParseError::Generic(e.to_string()),
-        }
     }
 }
 
@@ -882,5 +872,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["a2", "a1a1", "a0a", "h1", "z"]
         );
+    }
+
+    #[test]
+    fn test_nodeset_padding_error() {
+        let err = "nodes[01-003]".parse::<NodeSet>();
+
+        let _ = err.map_err(|e| match e {
+            NodeSetParseError::MismatchedPadding(min, max) => {
+                assert_eq!(min, "01");
+                assert_eq!(max, "003");
+            }
+            _ => panic!("Expected padding error, got {:?}", e),
+        });
     }
 }

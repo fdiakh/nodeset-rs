@@ -1,6 +1,6 @@
 use super::{CachedTranslation, IdRange, IdRangeStep, RankRanges, SortedIterator};
-
 use std::fmt::{self, Debug, Display};
+use std::iter;
 
 /// A 1D set of indexes stored in a Vec
 #[derive(Debug, Clone)]
@@ -345,7 +345,6 @@ impl IdRange for IdRangeList {
         self.sorted = false;
     }
 }
-use std::iter;
 
 impl Display for IdRangeList {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

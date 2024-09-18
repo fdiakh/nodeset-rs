@@ -646,6 +646,7 @@ mod tests {
             Err(NodeSetParseError::Source(_)) => (),
             e => panic!("Expected Source error, got {e:?}",),
         }
+
         assert_eq!(
             parser
                 .parse::<IdRangeList>("@roles:cpu_only")

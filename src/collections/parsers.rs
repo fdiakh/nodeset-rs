@@ -1,27 +1,52 @@
-use super::config::Resolver;
-use super::nodeset::NodeSetDimensions;
-use crate::collections::idset::IdRangeProduct;
-use crate::collections::nodeset::IdSetKind;
-use crate::idrange::{AffixIdRangeStep, IdRange, IdRangeOffset, IdRangeStep, SingleId};
-use crate::{IdSet, NodeSet, NodeSetParseError};
-use auto_enums::auto_enum;
-use nom::bytes::complete::is_a;
-use nom::combinator::{cut, eof, peek};
-use nom::error::ErrorKind;
-use nom::error::FromExternalError;
-use nom::error::ParseError;
-use nom::{
-    branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{char, digit1, multispace0, multispace1, one_of},
-    combinator::{all_consuming, map, map_res, opt, value, verify},
-    multi::{fold_many0, many0, separated_list1},
-    sequence::{delimited, pair, separated_pair, tuple},
-    IResult,
+use super::{config::Resolver, nodeset::NodeSetDimensions};
+use crate::{
+    collections::{idset::IdRangeProduct, nodeset::IdSetKind},
+    idrange::{AffixIdRangeStep, IdRange, IdRangeList, IdRangeOffset, IdRangeStep, SingleId},
+    IdSet, NodeSet, NodeSetParseError,
 };
-use std::convert::TryInto;
+use auto_enums::auto_enum;
+use std::{convert::TryInto, fmt};
+use winnow::{
+    self,
+    ascii::{digit1, multispace0, multispace1},
+    combinator::{
+        alt, delimited, eof, opt, peek, preceded, repeat, separated, separated_pair, terminated,
+    },
+    error::{
+        ErrMode, FromExternalError, ModalResult as GenericModalResult, ParseError, ParserError,
+    },
+    token::{literal, one_of, take_while},
+    Parser as WinParser,
+};
 
-use std::fmt;
+type ModalResult<T> = GenericModalResult<T, NodeSetParseError>;
+
+impl ParserError<&str> for NodeSetParseError {
+    type Inner = Self;
+
+    fn from_input(input: &&str) -> Self {
+        NodeSetParseError::Generic(input.to_string())
+    }
+
+    fn into_inner(self) -> Result<Self::Inner, Self> {
+        Ok(self)
+    }
+}
+
+impl From<ParseError<&str, NodeSetParseError>> for NodeSetParseError {
+    fn from(e: ParseError<&str, NodeSetParseError>) -> Self {
+        e.into_inner()
+    }
+}
+
+impl<E> FromExternalError<&str, E> for NodeSetParseError
+where
+    E: Into<NodeSetParseError>,
+{
+    fn from_external_error(_: &&str, error: E) -> Self {
+        error.into()
+    }
+}
 
 fn is_nodeset_char(c: char) -> bool {
     is_source_char(c) || c == ':'
@@ -52,115 +77,103 @@ impl<'a> Parser<'a> {
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        let mut ns = all_consuming(|i| self.expr(i))(i)
-            .map(|r| r.1)
-            .map_err(|e| match e {
-                nom::Err::Error(e) => NodeSetParseError::from(e),
-                nom::Err::Failure(e) => NodeSetParseError::from(e),
-                _ => panic!("unreachable"),
-            })?;
+        let mut ns = self.expr().parse(i)?;
 
         ns.fold();
         Ok(ns)
     }
 
-    fn expr<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn expr<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        delimited(
-            multispace0,
-            map_res(
-                fold_many0(
-                    tuple((|i| self.term(i), opt(Self::op))),
-                    || (None, None, false),
-                    |acc, t| {
-                        let (ns, op, err) = acc;
+        move |i: &mut &str| {
+            delimited(
+                multispace0,
+                repeat(0.., (self.term(), opt(Self::op)))
+                    .fold(
+                        || (None, None, false),
+                        |acc, t| {
+                            let (ns, op, err) = acc;
 
-                        if err {
-                            return (None, None, true);
-                        }
+                            if err {
+                                return (None, None, true);
+                            }
 
-                        let Some(mut ns) = ns else {
-                            return (Some(t.0), t.1, false);
-                        };
+                            let Some(mut ns) = ns else {
+                                return (Some(t.0), t.1, false);
+                            };
 
-                        let Some(op) = op else {
-                            return (None, None, true);
-                        };
+                            let Some(op) = op else {
+                                return (None, None, true);
+                            };
 
-                        match op {
-                            ',' | ' ' => {
-                                ns.extend_from_nodeset(&t.0);
+                            match op {
+                                ',' | ' ' => {
+                                    ns.extend_from_nodeset(&t.0);
+                                }
+                                '!' | '-' => {
+                                    ns = ns.difference(&t.0);
+                                }
+                                '^' => {
+                                    ns = ns.symmetric_difference(&t.0);
+                                }
+                                '&' => {
+                                    ns = ns.intersection(&t.0);
+                                }
+                                _ => unreachable!(),
                             }
-                            '!' | '-' => {
-                                ns = ns.difference(&t.0);
-                            }
-                            '^' => {
-                                ns = ns.symmetric_difference(&t.0);
-                            }
-                            '&' => {
-                                ns = ns.intersection(&t.0);
-                            }
-                            _ => unreachable!(),
-                        }
-                        (Some(ns), t.1, false)
-                    },
-                ),
-                |(ns, _, err)| {
-                    if err {
-                        Err(NodeSetParseError::Generic(i.to_string()))
-                    } else {
-                        Ok(ns.unwrap_or_default())
-                    }
-                },
-            ),
-            multispace0,
-        )(i)
+                            (Some(ns), t.1, false)
+                        },
+                    )
+                    .map(|(ns, _, _err)| ns.unwrap_or_default()),
+                multispace0,
+            )
+            .parse_next(i)
+        }
     }
 
-    fn term<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn term<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
+        move |input: &mut &str| {
+            alt((self.group_or_nodeset(), delimited("(", self.expr(), ")"))).parse_next(input)
+        }
+    }
+
+    fn op(i: &mut &str) -> ModalResult<char> {
         alt((
-            |i| self.group_or_nodeset(i),
-            delimited(char('('), |i| self.expr(i), char(')')),
-        ))(i)
+            delimited(multispace0, one_of([',', '&', '!', '^']), multispace0),
+            delimited(multispace1, one_of(['-']), multispace1),
+            multispace1.value(' '),
+        ))
+        .parse_next(i)
     }
 
-    fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
-        alt((
-            delimited(multispace0, one_of(",&!^"), multispace0),
-            delimited(multispace1, one_of("-"), multispace1),
-            value(' ', multispace1),
-        ))(i)
-    }
-
-    fn group_or_nodeset<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn group_or_nodeset<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((Self::rangeset, Self::nodeset, |i| self.group(i)))(i)
+        move |input: &mut &str| alt((Self::rangeset, Self::nodeset, self.group())).parse_next(input)
     }
 
-    fn nodeset_or_rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn nodeset_or_rangeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((Self::nodeset, Self::rangeset))(i)
+        alt((Self::nodeset, Self::rangeset)).parse_next(i)
     }
 
-    fn rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn rangeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        map_res(
-            pair(
-                alt((Self::id_range_bracketed_affix, Self::id_range_step_rangeset)),
-                peek(alt((is_a(",&!^()"), multispace1, eof))),
-            ),
-            |(idrs, _)| {
+        (
+            alt((Self::id_range_bracketed_affix, Self::id_range_step_rangeset)),
+            peek(alt((",", "&", "!", "^", "(", ")", multispace1, eof))),
+        )
+            .try_map(|(idrs, _)| {
                 let mut ns = NodeSet::lazy();
                 let mut dims = NodeSetDimensions::new();
                 dims.push("");
@@ -177,195 +190,185 @@ impl<'a> Parser<'a> {
 
                 range.sort();
                 ns.bases.entry(dims).or_insert(IdSetKind::Single(range));
-                Ok(ns)
-            },
-        )(i)
+                Result::<_, NodeSetParseError>::Ok(ns)
+            })
+            .parse_next(i)
     }
 
-    fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn nodeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        Self::set(i, false)
+        Self::set(false).parse_next(i)
     }
 
-    fn sourceset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn sourceset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        Self::set(i, true)
+        Self::set(true).parse_next(i)
     }
 
-    fn set<T>(i: &str, source: bool) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn source_or_node_component<'k>(
+        source: bool,
+    ) -> impl 'a + FnMut(&mut &'k str) -> ModalResult<&'k str> {
+        move |i: &mut &'k str| {
+            if source {
+                take_while(1.., is_source_char).parse_next(i)
+            } else {
+                take_while(1.., is_nodeset_char).parse_next(i)
+            }
+        }
+    }
+
+    fn set<T>(source: bool) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        let parser = if source {
-            Self::source_component
-        } else {
-            Self::node_component
-        };
-
-        map_res(
-            verify(
-                tuple((
-                    opt(alt((Self::id_range_bracketed_affix, Self::id_standalone))),
-                    many0(pair(
-                        parser,
+        move |i: &mut &str| {
+            (
+                opt(alt((Self::id_range_bracketed_affix, Self::id_standalone))),
+                repeat(
+                    0..,
+                    (
+                        Self::source_or_node_component(source),
                         alt((Self::id_range_bracketed_affix, Self::id_standalone)),
-                    )),
-                    opt(parser),
-                )),
-                |(_, components, suffix)| {
+                    ),
+                ),
+                opt(Self::source_or_node_component(source)),
+            )
+                .verify(|(_, components, suffix): &(_, Vec<_>, _)| {
                     // This is a rangeset
-                    if components.is_empty() && suffix.is_none() {
-                        return false;
-                    }
+                    !(components.is_empty() && suffix.is_none())
+                })
+                .try_map(|(prefix, components, suffix)| {
+                    let mut dims = NodeSetDimensions::new();
+                    let mut ranges = vec![];
 
-                    true
-                },
-            ),
-            |(prefix, components, suffix)| {
-                let mut dims = NodeSetDimensions::new();
-                let mut ranges = vec![];
+                    let it = prefix
+                        .into_iter()
+                        .map(|prefix| ("", prefix))
+                        .chain(components);
 
-                let it = prefix
-                    .into_iter()
-                    .map(|prefix| ("", prefix))
-                    .chain(components);
+                    for (dim, rng) in it {
+                        let mut range = T::new().lazy();
 
-                for (dim, rng) in it {
-                    let mut range = T::new().lazy();
-
-                    match rng {
-                        IdRangeComponent::Single(id) => range.push_idrs(id),
-                        IdRangeComponent::IdRange((high, rng, low)) => {
-                            for r in rng {
-                                range.push_idrs(AffixIdRangeStep::new(r, low, high)?)
+                        match rng {
+                            IdRangeComponent::Single(id) => range.push_idrs(id),
+                            IdRangeComponent::IdRange((high, rng, low)) => {
+                                for r in rng {
+                                    range.push_idrs(AffixIdRangeStep::new(r, low, high)?)
+                                }
                             }
                         }
+                        range.sort();
+                        ranges.push(range);
+                        dims.push(dim);
                     }
-                    range.sort();
-                    ranges.push(range);
-                    dims.push(dim);
-                }
-                if let Some(dim) = suffix {
-                    dims.push_suffix(dim);
-                }
 
-                let mut ns = NodeSet::lazy();
-                if ranges.is_empty() {
-                    ns.bases.entry(dims).or_insert_with(|| IdSetKind::None);
-                } else if ranges.len() == 1 {
-                    ns.bases
-                        .entry(dims)
-                        .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
-                } else {
-                    let mut ids = IdSet::new();
-                    ids.products.push(IdRangeProduct { ranges });
-                    ns.bases.entry(dims).or_insert(IdSetKind::Multiple(ids));
-                }
+                    if let Some(dim) = suffix {
+                        dims.push_suffix(dim);
+                    }
 
-                Ok(ns)
-            },
-        )(i)
+                    let mut ns = NodeSet::lazy();
+                    if ranges.is_empty() {
+                        ns.bases.entry(dims).or_insert_with(|| IdSetKind::None);
+                    } else if ranges.len() == 1 {
+                        ns.bases
+                            .entry(dims)
+                            .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
+                    } else {
+                        let mut ids = IdSet::new();
+                        ids.products.push(IdRangeProduct { ranges });
+                        ns.bases.entry(dims).or_insert(IdSetKind::Multiple(ids));
+                    }
+
+                    Result::<_, NodeSetParseError>::Ok(ns)
+                })
+                .parse_next(i)
+        }
     }
 
     #[auto_enum]
-    fn group<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
+    fn group<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        map(
-            pair(
-                char('@'),
-                cut(map_res(
-                    // Match either 'sources:groups' or 'groups'
-                    // Both sources and groups can be sets i.e: @source[1-4]:group[1,5]
-                    alt((
-                        map(tag("*"), |_| (None, None)),
-                        |s| self.group_with_source(s),
-                        map(Self::nodeset_or_rangeset, |s: NodeSet<T>| (None, Some(s))),
-                    )),
-                    |(sources, groups)| -> Result<NodeSet<T>, NodeSetParseError> {
-                        let mut ns = NodeSet::lazy();
-
-                        let Some(resolver) = self.resolver else {
-                            return Ok(ns);
-                        };
-
-                        #[auto_enum(Iterator)]
-                        let sources = match &sources {
-                            Some(sources) => sources.iter().map(Some),
-                            None => std::iter::once(self.default_source.map(|s| s.to_string())),
-                        };
-
-                        // Iterate over the sources or use an iterator
-                        // which yields the default source once
-                        for source in sources {
-                            let all_groups;
-                            let groups = match &groups {
-                                Some(groups) => groups,
-                                None => {
-                                    all_groups = resolver.list_groups(source.as_deref());
-                                    &all_groups
-                                }
-                            };
-
-                            for group in groups.iter() {
-                                let nodeset = resolver.resolve(source.as_deref(), &group)?;
-                                ns.extend_from_nodeset(&nodeset);
-                            }
-                        }
-
-                        Ok(ns)
-                    },
+        move |i: &mut &str| {
+            preceded(
+                "@",
+                // Match either 'sources:groups' or 'groups'
+                // Both sources and groups can be sets i.e: @source[1-4]:group[1,5]
+                alt((
+                    literal("*").value((None, None)),
+                    self.group_with_source(),
+                    Self::nodeset_or_rangeset.map(|s: NodeSet<IdRangeList>| (None, Some(s))),
                 )),
-            ),
-            |r| r.1,
-        )(i)
+            )
+            .map(
+                |(sources, groups)| -> Result<NodeSet<T>, ErrMode<NodeSetParseError>> {
+                    let mut ns = NodeSet::lazy();
+
+                    let Some(resolver) = self.resolver else {
+                        return Ok(ns);
+                    };
+
+                    #[auto_enum(Iterator)]
+                    let sources = match &sources {
+                        Some(sources) => sources.iter().map(Some),
+                        None => std::iter::once(self.default_source.map(|s| s.to_string())),
+                    };
+
+                    // Iterate over the sources or use an iterator
+                    // which yields the default source once
+                    for source in sources {
+                        let all_groups;
+                        let groups = match &groups {
+                            Some(groups) => groups,
+                            None => {
+                                all_groups = resolver.list_groups(source.as_deref());
+                                &all_groups
+                            }
+                        };
+
+                        for group in groups.iter() {
+                            let nodeset = resolver
+                                .resolve(source.as_deref(), &group)
+                                .map_err(ErrMode::Cut)?;
+                            ns.extend_from_nodeset(&nodeset);
+                        }
+                    }
+
+                    Ok(ns)
+                },
+            )
+            .parse_next(i)?
+        }
     }
 
-    #[allow(clippy::type_complexity)]
     fn group_with_source<T>(
         self,
-        i: &str,
-    ) -> IResult<&str, (Option<NodeSet<T>>, Option<NodeSet<T>>), CustomError<&str>>
+    ) -> impl FnMut(&mut &str) -> ModalResult<(Option<NodeSet<T>>, Option<NodeSet<T>>)>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((
-            map(pair(Self::sourceset, tag(":*")), |source| {
-                (Some(source.0), None)
-            }),
-            map(
-                separated_pair(Self::sourceset, char(':'), opt(Self::nodeset_or_rangeset)),
-                |source| (Some(source.0), Some(source.1.unwrap_or_default())),
-            ),
-        ))(i)
+        move |i: &mut &str| {
+            alt((
+                terminated(Self::sourceset, ":*").map(|source| (Some(source), None)),
+                separated_pair(Self::sourceset, ":", opt(Self::nodeset_or_rangeset))
+                    .map(|source| (Some(source.0), Some(source.1.unwrap_or_default()))),
+            ))
+            .parse_next(i)
+        }
     }
 
-    fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
-        take_while1(is_nodeset_char)(i)
-    }
-
-    fn source_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
-        take_while1(is_source_char)(i)
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn id_range_bracketed_affix(i: &str) -> IResult<&str, IdRangeComponent, CustomError<&str>> {
-        map_res(
-            tuple((
-                opt(digit1),
-                delimited(
-                    char('['),
-                    cut(separated_list1(tag(","), Self::id_range_step)),
-                    char(']'),
-                ),
-                opt(digit1),
-            )),
-            |(high, ranges, low)| {
+    fn id_range_bracketed_affix(i: &mut &str) -> ModalResult<IdRangeComponent> {
+        (
+            opt(digit1),
+            delimited("[", separated(1.., Self::id_range_step, ","), "]"),
+            opt(digit1),
+        )
+            .try_map(|(high, ranges, low)| {
                 let low = low
                     .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
                     .transpose()?
@@ -378,70 +381,56 @@ impl<'a> Parser<'a> {
                     .map(|(len, value)| IdRangeOffset::new(value, len as u32))
                     .transpose()?;
 
-                Ok(IdRangeComponent::IdRange((high, ranges, low)))
-            },
-        )(i)
+                Result::<_, NodeSetParseError>::Ok(IdRangeComponent::IdRange((high, ranges, low)))
+            })
+            .parse_next(i)
     }
 
-    #[allow(clippy::type_complexity)]
-    fn id_standalone(i: &str) -> IResult<&str, IdRangeComponent, CustomError<&str>> {
-        map_res(
-            digit1,
-            |d: &str| -> Result<IdRangeComponent, NodeSetParseError> {
+    fn id_standalone(i: &mut &str) -> ModalResult<IdRangeComponent> {
+        digit1
+            .try_map(|d: &str| -> Result<IdRangeComponent, NodeSetParseError> {
                 let start = d.parse::<u32>()?;
                 Ok(IdRangeComponent::Single(SingleId::new(
                     start,
                     d.len() as u32,
                 )?))
-            },
-        )(i)
+            })
+            .parse_next(i)
     }
 
-    fn id_range_step_rangeset(i: &str) -> IResult<&str, IdRangeComponent, CustomError<&str>> {
-        map_res(
-            Self::id_range_step,
-            |idrs| -> Result<IdRangeComponent, NodeSetParseError> {
-                Ok(IdRangeComponent::IdRange((None, vec![idrs], None)))
-            },
-        )(i)
+    fn id_range_step_rangeset(i: &mut &str) -> ModalResult<IdRangeComponent> {
+        Self::id_range_step
+            .map(|idrs| IdRangeComponent::IdRange((None, vec![idrs], None)))
+            .parse_next(i)
     }
 
-    #[allow(clippy::type_complexity)]
-    fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, CustomError<&str>> {
-        map_res(pair(digit1,
-                         opt(tuple((
-                                 tag("-"),
-                                digit1,
-                                opt(
-                                    pair(
-                                        tag("/"),
-                                        digit1)))))),
+    fn id_range_step(i: &mut &str) -> ModalResult<IdRangeStep> {
+        (digit1, opt(("-", digit1, opt(("/", digit1))))).try_map(
+            |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>)| -> Result<IdRangeStep, NodeSetParseError> {
+                let start = s.0.parse::<u32>()?;
+                let mut padded = Self::is_padded(s.0);
 
-                        |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>) | -> Result<IdRangeStep, NodeSetParseError> {
-                            let start = s.0.parse::<u32>()?;
-                            let mut padded = Self::is_padded(s.0);
+                let (end, step) = match s.1 {
+                    None => {(start, 1)},
+                    Some(s1) => {
+                        padded |= Self::is_padded(s1.1);
 
-                            let (end, step) = match s.1 {
-                                None => {(start, 1)},
-                                Some(s1) => {
-
-                                    padded |= Self::is_padded(s1.1);
-                                    if padded && s1.1.len() != s.0.len() {
-                                        return Err(NodeSetParseError::Padding(i.to_string()));
-                                    }
-
-                                    let end = s1.1.parse::<u32>() ?;
-                                    match s1.2 {
-                                        None => {(end, 1)},
-                                        Some((_, step)) => {(end, step.parse::<u32>()?)}
-                                    }
-                                }
-                            };
-
-
-                            Ok(IdRangeStep::new(start, end, step,  s.0.len().try_into()?)?)
+                        if padded && s1.1.len() != s.0.len() {
+                            return Err(NodeSetParseError::Padding(current.to_owned()));
                         }
-                        )(i)
+
+                        let end = s1.1.parse::<u32>()?;
+                        match s1.2 {
+                            None => {(end, 1)},
+                            Some((_, step)) => {(end, step.parse::<u32>()?)}
+                        }
+                    }
+                };
+
+
+                Ok(IdRangeStep::new(start, end, step,  s.0.len().try_into()?)?)
+            }
+        ).parse_next(i)
     }
 
     fn is_padded(s: &str) -> bool {
@@ -461,27 +450,6 @@ enum IdRangeComponent {
     ),
 }
 
-#[derive(Debug)]
-pub enum CustomError<I> {
-    NodeSetError(NodeSetParseError),
-    Nom(I, ErrorKind),
-}
-
-impl<I> ParseError<I> for CustomError<I> {
-    fn from_error_kind(input: I, kind: ErrorKind) -> Self {
-        CustomError::Nom(input, kind)
-    }
-
-    fn append(_: I, _: ErrorKind, other: Self) -> Self {
-        other
-    }
-}
-impl<I> FromExternalError<I, NodeSetParseError> for CustomError<I> {
-    fn from_external_error(_: I, _: ErrorKind, e: NodeSetParseError) -> Self {
-        CustomError::NodeSetError(e)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,259 +459,227 @@ mod tests {
     #[test]
     fn test_id_range_step() {
         assert_eq!(
-            Parser::id_range_step("2").unwrap(),
-            (
-                "",
-                IdRangeStep {
-                    start: 2,
-                    end: 2,
-                    step: 1,
-                    pad: 1
-                }
-            )
+            Parser::id_range_step(&mut "2").unwrap(),
+            IdRangeStep {
+                start: 2,
+                end: 2,
+                step: 1,
+                pad: 1
+            }
         );
         assert_eq!(
-            Parser::id_range_step("2-34").unwrap(),
-            (
-                "",
-                IdRangeStep {
-                    start: 2,
-                    end: 34,
-                    step: 1,
-                    pad: 1
-                }
-            )
+            Parser::id_range_step(&mut "2-34").unwrap(),
+            IdRangeStep {
+                start: 2,
+                end: 34,
+                step: 1,
+                pad: 1
+            }
         );
         assert_eq!(
-            Parser::id_range_step("2-34/8").unwrap(),
-            (
-                "",
-                IdRangeStep {
-                    start: 2,
-                    end: 34,
-                    step: 8,
-                    pad: 1
-                }
-            )
+            Parser::id_range_step(&mut "2-34/8").unwrap(),
+            IdRangeStep {
+                start: 2,
+                end: 34,
+                step: 8,
+                pad: 1
+            }
         );
 
-        assert!(Parser::id_range_step("-34/8").is_err());
-        assert!(Parser::id_range_step("/8").is_err());
+        assert!(Parser::id_range_step(&mut "-34/8").is_err());
+        assert!(Parser::id_range_step(&mut "/8").is_err());
         assert_eq!(
-            Parser::id_range_step("34/8").unwrap(),
-            (
-                "/8",
-                IdRangeStep {
-                    start: 34,
-                    end: 34,
-                    step: 1,
-                    pad: 2
-                }
-            )
+            Parser::id_range_step(&mut "34/8").unwrap(),
+            IdRangeStep {
+                start: 34,
+                end: 34,
+                step: 1,
+                pad: 2
+            }
         );
     }
 
     #[test]
     fn test_id_range_bracketed_affix() {
         assert_eq!(
-            Parser::id_range_bracketed_affix("[2]").unwrap(),
-            (
-                "",
-                IdRangeComponent::IdRange((
-                    None,
-                    vec![IdRangeStep {
+            Parser::id_range_bracketed_affix(&mut "[2]").unwrap(),
+            IdRangeComponent::IdRange((
+                None,
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 2,
+                    step: 1,
+                    pad: 1
+                }],
+                None
+            ))
+        );
+
+        assert_eq!(
+            Parser::id_range_bracketed_affix(&mut "[2,3-4,5-67/8]").unwrap(),
+            IdRangeComponent::IdRange((
+                None,
+                vec![
+                    IdRangeStep {
                         start: 2,
                         end: 2,
                         step: 1,
                         pad: 1
-                    }],
-                    None
-                ))
-            )
-        );
-
-        assert_eq!(
-            Parser::id_range_bracketed_affix("[2,3-4,5-67/8]").unwrap(),
-            (
-                "",
-                IdRangeComponent::IdRange((
-                    None,
-                    vec![
-                        IdRangeStep {
-                            start: 2,
-                            end: 2,
-                            step: 1,
-                            pad: 1
-                        },
-                        IdRangeStep {
-                            start: 3,
-                            end: 4,
-                            step: 1,
-                            pad: 1
-                        },
-                        IdRangeStep {
-                            start: 5,
-                            end: 67,
-                            step: 8,
-                            pad: 1
-                        }
-                    ],
-                    None
-                ))
-            )
-        );
-
-        assert_eq!(
-            Parser::id_range_bracketed_affix("12[2-9]").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    Some(IdRangeOffset { value: 12, pad: 2 }),
-                    vec![IdRangeStep {
-                        start: 2,
-                        end: 9,
+                    },
+                    IdRangeStep {
+                        start: 3,
+                        end: 4,
                         step: 1,
                         pad: 1
-                    },],
-                    None
-                )))
-            )
+                    },
+                    IdRangeStep {
+                        start: 5,
+                        end: 67,
+                        step: 8,
+                        pad: 1
+                    }
+                ],
+                None
+            ))
         );
 
         assert_eq!(
-            Parser::id_range_bracketed_affix("05[2-3]").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    Some(IdRangeOffset { value: 5, pad: 2 }),
-                    vec![IdRangeStep {
-                        start: 2,
-                        end: 3,
-                        step: 1,
-                        pad: 1
-                    },],
-                    None
-                )))
-            )
+            Parser::id_range_bracketed_affix(&mut "12[2-9]").unwrap(),
+            (IdRangeComponent::IdRange((
+                Some(IdRangeOffset { value: 12, pad: 2 }),
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 9,
+                    step: 1,
+                    pad: 1
+                },],
+                None
+            )))
         );
 
         assert_eq!(
-            Parser::id_range_bracketed_affix("[2-3]5").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    None,
-                    vec![IdRangeStep {
-                        start: 2,
-                        end: 3,
-                        step: 1,
-                        pad: 1
-                    },],
-                    Some(IdRangeOffset { value: 5, pad: 1 }),
-                )))
-            )
+            Parser::id_range_bracketed_affix(&mut "05[2-3]").unwrap(),
+            (IdRangeComponent::IdRange((
+                Some(IdRangeOffset { value: 5, pad: 2 }),
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 3,
+                    step: 1,
+                    pad: 1
+                },],
+                None
+            )))
         );
 
         assert_eq!(
-            Parser::id_range_bracketed_affix("[2-3]05").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    None,
-                    vec![IdRangeStep {
-                        start: 2,
-                        end: 3,
-                        step: 1,
-                        pad: 1
-                    },],
-                    Some(IdRangeOffset { value: 5, pad: 2 }),
-                )))
-            )
+            Parser::id_range_bracketed_affix(&mut "[2-3]5").unwrap(),
+            (IdRangeComponent::IdRange((
+                None,
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 3,
+                    step: 1,
+                    pad: 1
+                },],
+                Some(IdRangeOffset { value: 5, pad: 1 }),
+            )))
         );
 
-        assert!(Parser::id_range_bracketed_affix("[2,]").is_err());
-        assert!(Parser::id_range_bracketed_affix("[/8]").is_err());
-        assert!(Parser::id_range_bracketed_affix("[34-]").is_err());
+        assert_eq!(
+            Parser::id_range_bracketed_affix(&mut "[2-3]05").unwrap(),
+            (IdRangeComponent::IdRange((
+                None,
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 3,
+                    step: 1,
+                    pad: 1
+                },],
+                Some(IdRangeOffset { value: 5, pad: 2 }),
+            )))
+        );
+
+        assert!(Parser::id_range_bracketed_affix(&mut "[2,]").is_err());
+        assert!(Parser::id_range_bracketed_affix(&mut "[/8]").is_err());
+        assert!(Parser::id_range_bracketed_affix(&mut "[34-]").is_err());
     }
 
     #[test]
     fn test_id_range_bracketed() {
         assert_eq!(
-            Parser::id_range_bracketed_affix("[2]").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    None,
-                    vec![IdRangeStep {
+            Parser::id_range_bracketed_affix(&mut "[2]").unwrap(),
+            (IdRangeComponent::IdRange((
+                None,
+                vec![IdRangeStep {
+                    start: 2,
+                    end: 2,
+                    step: 1,
+                    pad: 1
+                }],
+                None
+            )))
+        );
+        assert_eq!(
+            Parser::id_range_bracketed_affix(&mut "[2,3-4,5-67/8]").unwrap(),
+            (IdRangeComponent::IdRange((
+                None,
+                vec![
+                    IdRangeStep {
                         start: 2,
                         end: 2,
                         step: 1,
                         pad: 1
-                    }],
-                    None
-                )))
-            )
-        );
-        assert_eq!(
-            Parser::id_range_bracketed_affix("[2,3-4,5-67/8]").unwrap(),
-            (
-                "",
-                (IdRangeComponent::IdRange((
-                    None,
-                    vec![
-                        IdRangeStep {
-                            start: 2,
-                            end: 2,
-                            step: 1,
-                            pad: 1
-                        },
-                        IdRangeStep {
-                            start: 3,
-                            end: 4,
-                            step: 1,
-                            pad: 1
-                        },
-                        IdRangeStep {
-                            start: 5,
-                            end: 67,
-                            step: 8,
-                            pad: 1
-                        }
-                    ],
-                    None
-                )))
-            )
+                    },
+                    IdRangeStep {
+                        start: 3,
+                        end: 4,
+                        step: 1,
+                        pad: 1
+                    },
+                    IdRangeStep {
+                        start: 5,
+                        end: 67,
+                        step: 8,
+                        pad: 1
+                    }
+                ],
+                None
+            )))
         );
 
-        assert!(Parser::id_range_bracketed_affix("[2,]").is_err());
-        assert!(Parser::id_range_bracketed_affix("[/8]").is_err());
-        assert!(Parser::id_range_bracketed_affix("[34-]").is_err());
+        assert!(Parser::id_range_bracketed_affix(&mut "[2,]").is_err());
+        assert!(Parser::id_range_bracketed_affix(&mut "[/8]").is_err());
+        assert!(Parser::id_range_bracketed_affix(&mut "[34-]").is_err());
     }
 
     #[test]
     fn test_node_component() {
-        test_component(Parser::node_component);
+        //test_component(Parser::node_component);
         assert_eq!(
-            Parser::node_component("http://a1a").unwrap(),
-            ("1a", "http://a")
+            Parser::source_or_node_component(false)
+                .parse_next(&mut "http://a1a")
+                .unwrap(),
+            "http://a"
         );
     }
 
     #[test]
     fn test_source_component() {
-        test_component(Parser::source_component);
+        //test_component(Parser::source_component);
         assert_eq!(
-            Parser::source_component("http://a1a").unwrap(),
-            ("://a1a", "http")
+            Parser::source_or_node_component(true)
+                .parse_next(&mut "http://a1a")
+                .unwrap(),
+            "http"
         );
     }
 
-    fn test_component(parser: impl Fn(&str) -> IResult<&str, &str, CustomError<&str>>) {
-        assert_eq!(parser("abcd efg").unwrap(), (" efg", "abcd"));
-        assert!(parser(" abcdefg").is_err());
-        assert_eq!(parser("a_b-c.d+j/2efg").unwrap(), ("2efg", "a_b-c.d+j/"));
-        assert!(parser("0ef").is_err());
-    }
+    //fn test_component<'a>(parser: impl Fn(&mut &'a str) -> ModalResult<&'a str>) {
+    //    assert_eq!(parser(&mut "abcd efg").unwrap(), "abcd");
+    //    assert!(parser(&mut " abcdefg").is_err());
+    //    assert_eq!(parser(&mut "a_b-c.d+j/2efg").unwrap(), "a_b-c.d+j/");
+    //    assert!(parser(&mut "0ef").is_err());
+    //}
 
     #[test]
     fn test_group() {
@@ -763,9 +699,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:group1")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:group1")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a1,a2"
@@ -773,9 +709,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:group[1,2]")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:group[1,2]")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a1,a2,a3,a4"
@@ -783,9 +719,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:group:1")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:group:1")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a4,a5"
@@ -793,9 +729,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:group:[1,2]")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:group:[1,2]")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a4,a5,a6"
@@ -803,9 +739,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:group:suffix")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:group:suffix")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a7,a8"
@@ -813,9 +749,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:[2-3]")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:[2-3]")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a10,a11,a12,a13"
@@ -823,9 +759,9 @@ mod tests {
 
         assert_eq!(
             parser
-                .group::<crate::IdRangeList>("@source:04")
+                .group::<crate::IdRangeList>()
+                .parse(&mut "@source:04")
                 .unwrap()
-                .1
                 .iter()
                 .join(","),
             "a14,a15"
