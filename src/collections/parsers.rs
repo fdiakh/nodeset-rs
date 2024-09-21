@@ -10,7 +10,8 @@ use winnow::{
     self,
     ascii::{digit1, multispace0, multispace1},
     combinator::{
-        alt, delimited, eof, opt, peek, preceded, repeat, separated, separated_pair, terminated,
+        alt, cut_err, delimited, eof, opt, peek, preceded, repeat, separated, separated_pair,
+        terminated,
     },
     error::{
         ErrMode, FromExternalError, ModalResult as GenericModalResult, ParseError, ParserError,
@@ -365,7 +366,7 @@ impl<'a> Parser<'a> {
     fn id_range_bracketed_affix(i: &mut &str) -> ModalResult<IdRangeComponent> {
         (
             opt(digit1),
-            delimited("[", separated(1.., Self::id_range_step, ","), "]"),
+            delimited("[", separated(1.., cut_err(Self::id_range_step), ","), "]"),
             opt(digit1),
         )
             .try_map(|(high, ranges, low)| {
@@ -416,7 +417,7 @@ impl<'a> Parser<'a> {
                         padded |= Self::is_padded(s1.1);
 
                         if padded && s1.1.len() != s.0.len() {
-                            return Err(NodeSetParseError::Padding(current.to_owned()));
+                            return Err(NodeSetParseError::MismatchedPadding(s.0.to_string(), s1.1.to_string()));
                         }
 
                         let end = s1.1.parse::<u32>()?;
