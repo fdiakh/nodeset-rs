@@ -491,7 +491,13 @@ impl GroupSource for DynamicGroupSource {
             map, self.name, group, res
         );
 
-        Ok(Some(res.trim().to_string()))
+        // If the group exists but is empty, res will contain whitespace
+        // If the group does not exist, res will be empty
+        if !res.is_empty() {
+            Ok(Some(res.trim().to_string()))
+        } else {
+            Err(NodeSetParseError::UnknownGroup(group.to_string()))
+        }
     }
 
     fn list(&self) -> String {
