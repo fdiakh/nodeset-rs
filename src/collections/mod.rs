@@ -7,5 +7,6 @@ pub use config::Resolver;
 pub(crate) use idset::IdSet;
 pub(crate) use idset::IdSetIter;
 pub use nodeset::NodeSet;
+pub use nodeset::NodeSetIter;
 pub use nodeset::NodeSetParseError;
 pub use parsers::Parser;
