@@ -47,6 +47,9 @@ impl<T> Default for NodeSet<T> {
 }
 
 #[derive(Debug, Clone)]
+/// An iterator over nodes in a `NodeSet`
+///
+/// This iterator is created by the `iter` method on `NodeSet`.
 pub struct NodeSetIter<'a, T>
 where
     T: IdRange + fmt::Display + PartialEq + Clone + fmt::Display + fmt::Debug,

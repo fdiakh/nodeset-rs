@@ -6,6 +6,7 @@ pub(crate) use collections::IdSet;
 pub(crate) use collections::IdSetIter;
 pub use collections::NodeSet;
 pub use collections::NodeSetParseError;
+pub use collections::NodeSetIter;
 pub use collections::Parser;
 pub use collections::Resolver;
 pub use idrange::IdRangeList;
