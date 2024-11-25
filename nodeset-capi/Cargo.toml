@@ -1,0 +1,16 @@
+
+[package]
+name = "nodeset-capi"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+strip = "symbols"
+
+[lib]
+name = "nodeset"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.92"
+nodeset = { path = "../" }
