@@ -696,12 +696,12 @@ mod tests {
 
     #[test]
     fn test_parse_dynamic_config() {
-        use tempdir::TempDir;
+        use tempfile::TempDir;
 
         let config = include_str!("tests/groups.conf");
         let mut dynamic = MainGroupConfig::from_reader(config.as_bytes()).unwrap();
 
-        let tmp_dir = TempDir::new("tests").unwrap();
+        let tmp_dir = TempDir::new().unwrap();
 
         std::fs::create_dir(tmp_dir.path().join("groups.d")).unwrap();
         std::fs::write(

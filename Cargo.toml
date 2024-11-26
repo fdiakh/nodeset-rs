@@ -31,7 +31,8 @@ serde_yaml = "0.9.34"
 auto_enums = "0.8.5"
 
 [dev-dependencies]
-tempdir = "0.3.7"
+tempfile = "3.14.0"
+
 
 [profile.release]
 debug = true
