@@ -752,6 +752,126 @@ mod tests {
                 ],
             },
         );
+
+        let mut idset = IdSet {
+            products: vec![
+                IdRangeProduct {
+                    ranges: vec![
+                        IdRangeList::from(IdRangeStep {
+                            start: 0,
+                            end: 6,
+                            step: 1,
+                            pad: 0,
+                        }),
+                        IdRangeList::from(IdRangeStep {
+                            start: 0,
+                            end: 6,
+                            step: 1,
+                            pad: 0,
+                        }),
+                    ],
+                },
+                IdRangeProduct {
+                    ranges: vec![
+                        IdRangeList::from(IdRangeStep {
+                            start: 4,
+                            end: 10,
+                            step: 1,
+                            pad: 0,
+                        }),
+                        IdRangeList::from(IdRangeStep {
+                            start: 8,
+                            end: 10,
+                            step: 1,
+                            pad: 0,
+                        }),
+                    ],
+                },
+            ],
+        };
+        idset.prepare_sort();
+        idset.minimal_split();
+
+        assert_eq!(idset.products.len(), 4);
+        assert_eq!(
+            idset.products[0],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 3,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[1],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 0,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[2],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 4,
+                        end: 6,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 8,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
+
+        assert_eq!(
+            idset.products[3],
+            IdRangeProduct {
+                ranges: vec![
+                    IdRangeList::from(IdRangeStep {
+                        start: 7,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                    IdRangeList::from(IdRangeStep {
+                        start: 8,
+                        end: 10,
+                        step: 1,
+                        pad: 0,
+                    }),
+                ],
+            },
+        );
     }
 
     #[test]
