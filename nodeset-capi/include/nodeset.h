@@ -76,7 +76,7 @@ NodeSet *ns_difference(NodeSet *nodeset1, NodeSet *nodeset2);
  * Compute a folded representation of a nodeset
  *
  * `ns_fold()` returns a string containing the folded representation of the
- * nodeset. NULL is returned if an error occured and `*error` is set to a newly
+ * nodeset. NULL is returned if an error occurred and `*error` is set to a newly
  * allocated string containing the error message unless NULL was passed.
  *
  * # Safety
