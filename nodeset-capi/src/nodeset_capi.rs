@@ -11,7 +11,7 @@ type NodeSet = nodeset::NodeSet<IdRangeList>;
 #[no_mangle]
 /// Initialize the group resolver with default settings
 ///
-/// `init_default_resolver()` intializes the group resolver based on
+/// `init_default_resolver()` initializes the group resolver based on
 /// clustershell's configuration files.
 ///
 /// In case of error, `*error` is set to a newly allocated string containing the
@@ -144,7 +144,7 @@ pub unsafe extern "C" fn ns_list(
 /// Compute a folded representation of a nodeset
 ///
 /// `ns_fold()` returns a string containing the folded representation of the
-/// nodeset. NULL is returned if an error occured and `*error` is set to a newly
+/// nodeset. NULL is returned if an error occurred and `*error` is set to a newly
 /// allocated string containing the error message unless NULL was passed.
 ///
 /// # Safety
