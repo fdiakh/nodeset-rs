@@ -11,7 +11,7 @@ type NodeSet = nodeset::NodeSet<IdRangeList>;
 #[no_mangle]
 /// Initialize the group resolver with default settings
 ///
-/// `init_default_resolver()` intializes the group resolver based on
+/// `init_default_resolver()` initializes the group resolver based on
 /// clustershell's configuration files.
 ///
 /// In case of error, `*error` is set to a newly allocated string containing the
