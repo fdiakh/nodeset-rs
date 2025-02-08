@@ -1,7 +1,10 @@
 use super::{config::Resolver, nodeset::NodeSetDimensions};
 use crate::{
     collections::{idset::IdRangeProduct, nodeset::IdSetKind},
-    idrange::{AffixIdRangeStep, IdRange, IdRangeList, IdRangeOffset, IdRangeStep, SingleId},
+    idrange::{
+        AffixIdRangeStep, IdRange, IdRangeList, IdRangeOffset, IdRangeStep, RangeStepError,
+        SingleId,
+    },
     IdSet, NodeSet, NodeSetParseError,
 };
 use auto_enums::auto_enum;
@@ -17,16 +20,80 @@ use winnow::{
         ErrMode, FromExternalError, ModalResult as GenericModalResult, ParseError, ParserError,
     },
     token::{literal, one_of, take_while},
-    Parser as WinParser,
+    Parser as _,
 };
 
-type ModalResult<T> = GenericModalResult<T, NodeSetParseError>;
+#[derive(thiserror::Error, Debug)]
+enum FormatError<'a> {
+    /// An error occured parsing the provided input
+    #[error("unrecognized input: '{0}'")]
+    Input(&'a str),
 
-impl ParserError<&str> for NodeSetParseError {
+    /// Padding sizes at both ends of a range do not match (ie `[01-003]`).
+    #[error("mismatched padding: '{0}' and '{1}'")]
+    MismatchedPadding(&'a str, &'a str),
+
+    /// A reference was made to a group source that does not exist.
+    #[error("Unknown group source: '{0}'")]
+    Source(&'a str),
+
+    /// An error occurred while parsing an integer.
+    #[error("invalid range")]
+    RangeError(#[from] RangeStepError),
+
+    /// An error occurred while parsing an integer.
+    #[error("invalid integer")]
+    ParseIntError(#[from] std::num::ParseIntError),
+
+    /// An index is out of range.
+    #[error("value out of range")]
+    OverFlow(#[from] std::num::TryFromIntError),
+
+    /// An error occurred while executing an external command as specified in the dynamic configuration file.
+    #[error("external command execution failed")]
+    Command(#[from] std::io::Error),
+}
+
+impl<'a> From<FormatError<'a>> for NodeSetParseError {
+    fn from(e: FormatError<'a>) -> Self {
+        match e {
+            FormatError::Input(s) => NodeSetParseError::Generic(s.to_string()),
+            FormatError::MismatchedPadding(a, b) => {
+                NodeSetParseError::MismatchedPadding(a.to_string(), b.to_string())
+            }
+            FormatError::Source(s) => NodeSetParseError::Source(s.to_string()),
+            FormatError::RangeError(e) => NodeSetParseError::RangeError(e),
+            FormatError::ParseIntError(e) => NodeSetParseError::ParseIntError(e),
+            FormatError::OverFlow(e) => NodeSetParseError::OverFlow(e),
+            FormatError::Command(e) => NodeSetParseError::Command(e),
+        }
+    }
+}
+
+/// Take a result and turn it into a parse-aborting error
+trait CutErrorExt<T, E> {
+    fn cut(self) -> Result<T, ErrMode<E>>;
+}
+
+impl<'a, T, E> CutErrorExt<T, FormatError<'a>> for Result<T, E>
+where
+    E: Into<FormatError<'a>>,
+{
+    fn cut(self) -> Result<T, ErrMode<FormatError<'a>>> {
+        match self {
+            Ok(t) => Ok(t),
+            Err(e) => Err(ErrMode::Cut(e.into())),
+        }
+    }
+}
+
+type ModalResult<'a, T> = GenericModalResult<T, FormatError<'a>>;
+
+impl<'a> ParserError<&'a str> for FormatError<'a> {
     type Inner = Self;
 
-    fn from_input(input: &&str) -> Self {
-        NodeSetParseError::Generic(input.to_string())
+    fn from_input(input: &&'a str) -> Self {
+        FormatError::Input(*input)
     }
 
     fn into_inner(self) -> Result<Self::Inner, Self> {
@@ -34,18 +101,18 @@ impl ParserError<&str> for NodeSetParseError {
     }
 }
 
-impl From<ParseError<&str, NodeSetParseError>> for NodeSetParseError {
-    fn from(e: ParseError<&str, NodeSetParseError>) -> Self {
+impl<'a> From<ParseError<&'a str, FormatError<'a>>> for FormatError<'a> {
+    fn from(e: ParseError<&'a str, FormatError<'a>>) -> Self {
         e.into_inner()
     }
 }
 
-impl<E> FromExternalError<&str, E> for NodeSetParseError
-where
-    E: Into<NodeSetParseError>,
+impl<'a, E: std::error::Error + Send + Sync + 'static + Into<FormatError<'a>>>
+    FromExternalError<&'a str, E> for FormatError<'a>
 {
-    fn from_external_error(_: &&str, error: E) -> Self {
-        error.into()
+    #[inline]
+    fn from_external_error(_input: &&'a str, e: E) -> Self {
+        e.into()
     }
 }
 
@@ -74,17 +141,17 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a string into a nodeset
-    pub fn parse<T>(self, i: &str) -> Result<NodeSet<T>, NodeSetParseError>
+    pub fn parse<T>(self, i: &'a str) -> Result<NodeSet<T>, NodeSetParseError>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        let mut ns = self.expr().parse(i)?;
+        let mut ns = self.expr().parse(i).map_err(|e| e.into_inner())?;
 
         ns.fold();
         Ok(ns)
     }
 
-    fn expr<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
+    fn expr<T>(self) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
@@ -134,16 +201,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn term<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
+    fn term<T>(self) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         move |input: &mut &str| {
-            alt((self.group_or_nodeset(), delimited("(", self.expr(), ")"))).parse_next(input)
+            alt((
+                alt((Self::rangeset, Self::nodeset, self.group())),
+                delimited("(", self.expr(), ")"),
+            ))
+            .parse_next(input)
         }
     }
 
-    fn op(i: &mut &str) -> ModalResult<char> {
+    fn op(i: &mut &'a str) -> ModalResult<'a, char> {
         alt((
             delimited(multispace0, one_of([',', '&', '!', '^']), multispace0),
             delimited(multispace1, one_of(['-']), multispace1),
@@ -152,21 +223,14 @@ impl<'a> Parser<'a> {
         .parse_next(i)
     }
 
-    fn group_or_nodeset<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
-    where
-        T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
-    {
-        move |input: &mut &str| alt((Self::rangeset, Self::nodeset, self.group())).parse_next(input)
-    }
-
-    fn nodeset_or_rangeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
+    fn nodeset_or_rangeset<T>(i: &mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         alt((Self::nodeset, Self::rangeset)).parse_next(i)
     }
 
-    fn rangeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
+    fn rangeset<T>(i: &mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
@@ -174,46 +238,48 @@ impl<'a> Parser<'a> {
             alt((Self::id_range_bracketed_affix, Self::id_range_step_rangeset)),
             peek(alt((",", "&", "!", "^", "(", ")", multispace1, eof))),
         )
-            .try_map(|(idrs, _)| {
-                let mut ns = NodeSet::lazy();
-                let mut dims = NodeSetDimensions::new();
-                dims.push("");
-                let mut range = T::new().lazy();
+            .map(
+                |(idrs, _)| -> Result<NodeSet<T>, ErrMode<FormatError<'a>>> {
+                    let mut ns = NodeSet::lazy();
+                    let mut dims = NodeSetDimensions::new();
+                    dims.push("");
+                    let mut range = T::new().lazy();
 
-                match idrs {
-                    IdRangeComponent::Single(id) => range.push_idrs(id),
-                    IdRangeComponent::IdRange((high, rng, low)) => {
-                        for r in rng {
-                            range.push_idrs(AffixIdRangeStep::new(r, low, high)?)
+                    match idrs {
+                        IdRangeComponent::Single(id) => range.push_idrs(id),
+                        IdRangeComponent::IdRange((high, rng, low)) => {
+                            for r in rng {
+                                range.push_idrs(AffixIdRangeStep::new(r, low, high).cut()?)
+                            }
                         }
                     }
-                }
 
-                range.sort();
-                ns.bases.entry(dims).or_insert(IdSetKind::Single(range));
-                Result::<_, NodeSetParseError>::Ok(ns)
-            })
-            .parse_next(i)
+                    range.sort();
+                    ns.bases.entry(dims).or_insert(IdSetKind::Single(range));
+                    Ok(ns)
+                },
+            )
+            .parse_next(i)?
     }
 
-    fn nodeset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
+    fn nodeset<T>(i: &mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         Self::set(false).parse_next(i)
     }
 
-    fn sourceset<T>(i: &mut &str) -> ModalResult<NodeSet<T>>
+    fn sourceset<T>(i: &mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
         Self::set(true).parse_next(i)
     }
 
-    fn source_or_node_component<'k>(
+    fn source_or_node_component(
         source: bool,
-    ) -> impl 'a + FnMut(&mut &'k str) -> ModalResult<&'k str> {
-        move |i: &mut &'k str| {
+    ) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, &'a str> {
+        move |i: &mut &str| {
             if source {
                 take_while(1.., is_source_char).parse_next(i)
             } else {
@@ -222,7 +288,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn set<T>(source: bool) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
+    fn set<T>(source: bool) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
@@ -242,56 +308,58 @@ impl<'a> Parser<'a> {
                     // This is a rangeset
                     !(components.is_empty() && suffix.is_none())
                 })
-                .try_map(|(prefix, components, suffix)| {
-                    let mut dims = NodeSetDimensions::new();
-                    let mut ranges = vec![];
+                .map(
+                    |(prefix, components, suffix)| -> Result<NodeSet<T>, ErrMode<FormatError<'a>>> {
+                        let mut dims = NodeSetDimensions::new();
+                        let mut ranges = vec![];
 
-                    let it = prefix
-                        .into_iter()
-                        .map(|prefix| ("", prefix))
-                        .chain(components);
+                        let it = prefix
+                            .into_iter()
+                            .map(|prefix| ("", prefix))
+                            .chain(components);
 
-                    for (dim, rng) in it {
-                        let mut range = T::new().lazy();
+                        for (dim, rng) in it {
+                            let mut range = T::new().lazy();
 
-                        match rng {
-                            IdRangeComponent::Single(id) => range.push_idrs(id),
-                            IdRangeComponent::IdRange((high, rng, low)) => {
-                                for r in rng {
-                                    range.push_idrs(AffixIdRangeStep::new(r, low, high)?)
+                            match rng {
+                                IdRangeComponent::Single(id) => range.push_idrs(id),
+                                IdRangeComponent::IdRange((high, rng, low)) => {
+                                    for r in rng {
+                                        range.push_idrs(AffixIdRangeStep::new(r, low, high).cut()?)
+                                    }
                                 }
                             }
+                            range.sort();
+                            ranges.push(range);
+                            dims.push(dim);
                         }
-                        range.sort();
-                        ranges.push(range);
-                        dims.push(dim);
-                    }
 
-                    if let Some(dim) = suffix {
-                        dims.push_suffix(dim);
-                    }
+                        if let Some(dim) = suffix {
+                            dims.push_suffix(dim);
+                        }
 
-                    let mut ns = NodeSet::lazy();
-                    if ranges.is_empty() {
-                        ns.bases.entry(dims).or_insert_with(|| IdSetKind::None);
-                    } else if ranges.len() == 1 {
-                        ns.bases
-                            .entry(dims)
-                            .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
-                    } else {
-                        let mut ids = IdSet::new();
-                        ids.products.push(IdRangeProduct { ranges });
-                        ns.bases.entry(dims).or_insert(IdSetKind::Multiple(ids));
-                    }
+                        let mut ns = NodeSet::lazy();
+                        if ranges.is_empty() {
+                            ns.bases.entry(dims).or_insert_with(|| IdSetKind::None);
+                        } else if ranges.len() == 1 {
+                            ns.bases
+                                .entry(dims)
+                                .or_insert(IdSetKind::Single(ranges.pop().unwrap()));
+                        } else {
+                            let mut ids = IdSet::new();
+                            ids.products.push(IdRangeProduct { ranges });
+                            ns.bases.entry(dims).or_insert(IdSetKind::Multiple(ids));
+                        }
 
-                    Result::<_, NodeSetParseError>::Ok(ns)
-                })
-                .parse_next(i)
+                        Ok(ns)
+                    },
+                )
+                .parse_next(i)?
         }
     }
 
     #[auto_enum]
-    fn group<T>(self) -> impl 'a + FnMut(&mut &str) -> ModalResult<NodeSet<T>>
+    fn group<T>(self) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, NodeSet<T>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
@@ -307,7 +375,7 @@ impl<'a> Parser<'a> {
                 )),
             )
             .map(
-                |(sources, groups)| -> Result<NodeSet<T>, ErrMode<NodeSetParseError>> {
+                |(sources, groups)| -> Result<NodeSet<T>, ErrMode<FormatError<'a>>> {
                     let mut ns = NodeSet::lazy();
 
                     let Some(resolver) = self.resolver else {
@@ -335,7 +403,8 @@ impl<'a> Parser<'a> {
                         for group in groups.iter() {
                             let nodeset = resolver
                                 .resolve(source.as_deref(), &group)
-                                .map_err(ErrMode::Cut)?;
+                                .map_err(|_| FormatError::Source(*i))
+                                .cut()?;
                             ns.extend_from_nodeset(&nodeset);
                         }
                     }
@@ -349,7 +418,7 @@ impl<'a> Parser<'a> {
 
     fn group_with_source<T>(
         self,
-    ) -> impl FnMut(&mut &str) -> ModalResult<(Option<NodeSet<T>>, Option<NodeSet<T>>)>
+    ) -> impl 'a + FnMut(&mut &'a str) -> ModalResult<'a, (Option<NodeSet<T>>, Option<NodeSet<T>>)>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
@@ -363,75 +432,91 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn id_range_bracketed_affix(i: &mut &str) -> ModalResult<IdRangeComponent> {
+    fn id_range_bracketed_affix(i: &mut &'a str) -> ModalResult<'a, IdRangeComponent> {
         (
             opt(digit1),
             delimited("[", separated(1.., cut_err(Self::id_range_step), ","), "]"),
             opt(digit1),
         )
-            .try_map(|(high, ranges, low)| {
-                let low = low
-                    .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
-                    .transpose()?
-                    .map(|(len, value)| IdRangeOffset::new(value, len as u32))
-                    .transpose()?;
+            .map(
+                |(high, ranges, low)| -> Result<IdRangeComponent, ErrMode<FormatError<'a>>> {
+                    let low = low
+                        .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
+                        .transpose()
+                        .cut()?
+                        .map(|(len, value)| IdRangeOffset::new(value, len as u32))
+                        .transpose()
+                        .cut()?;
 
-                let high = high
-                    .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
-                    .transpose()?
-                    .map(|(len, value)| IdRangeOffset::new(value, len as u32))
-                    .transpose()?;
+                    let high = high
+                        .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
+                        .transpose()
+                        .cut()?
+                        .map(|(len, value)| IdRangeOffset::new(value, len as u32))
+                        .transpose()
+                        .cut()?;
 
-                Result::<_, NodeSetParseError>::Ok(IdRangeComponent::IdRange((high, ranges, low)))
-            })
-            .parse_next(i)
+                    Ok(IdRangeComponent::IdRange((high, ranges, low)))
+                },
+            )
+            .parse_next(i)?
     }
 
-    fn id_standalone(i: &mut &str) -> ModalResult<IdRangeComponent> {
+    fn id_standalone(i: &mut &'a str) -> ModalResult<'a, IdRangeComponent> {
         digit1
-            .try_map(|d: &str| -> Result<IdRangeComponent, NodeSetParseError> {
-                let start = d.parse::<u32>()?;
-                Ok(IdRangeComponent::Single(SingleId::new(
-                    start,
-                    d.len() as u32,
-                )?))
-            })
-            .parse_next(i)
+            .map(
+                |d: &str| -> Result<IdRangeComponent, ErrMode<FormatError<'a>>> {
+                    let start = d.parse::<u32>().cut()?;
+                    Ok(IdRangeComponent::Single(
+                        SingleId::new(start, d.len() as u32).cut()?,
+                    ))
+                },
+            )
+            .parse_next(i)?
     }
 
-    fn id_range_step_rangeset(i: &mut &str) -> ModalResult<IdRangeComponent> {
+    fn id_range_step_rangeset(i: &mut &'a str) -> ModalResult<'a, IdRangeComponent> {
         Self::id_range_step
             .map(|idrs| IdRangeComponent::IdRange((None, vec![idrs], None)))
             .parse_next(i)
     }
 
-    fn id_range_step(i: &mut &str) -> ModalResult<IdRangeStep> {
-        (digit1, opt(("-", digit1, opt(("/", digit1))))).try_map(
-            |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>)| -> Result<IdRangeStep, NodeSetParseError> {
-                let start = s.0.parse::<u32>()?;
-                let mut padded = Self::is_padded(s.0);
+    fn id_range_step(i: &mut &'a str) -> ModalResult<'a, IdRangeStep> {
+        (
+            digit1,
+            opt(preceded("-", (digit1, opt(preceded("/", digit1))))),
+        )
+            .map(
+                |(start, end_step): (&str, Option<(&str, Option<&str>)>)| -> Result<_, ErrMode<FormatError<'a>>> {
+                    let start_index = start.parse::<u32>().cut()?;
+                    let len =
+                        start.len()
+                            .try_into()
+                            .cut()?;
 
-                let (end, step) = match s.1 {
-                    None => {(start, 1)},
-                    Some(s1) => {
-                        padded |= Self::is_padded(s1.1);
+                    let mut padded = Self::is_padded(start);
 
-                        if padded && s1.1.len() != s.0.len() {
-                            return Err(NodeSetParseError::MismatchedPadding(s.0.to_string(), s1.1.to_string()));
+                    let (end_index, step) = match end_step {
+                        None => (start_index, 1),
+                        Some((end, step)) => {
+                            padded |= Self::is_padded(end);
+
+                            if padded && end.len() != start.len() {
+                                Err(FormatError::MismatchedPadding(start, end)).cut()?;
+                            }
+
+                            let end_index = end.parse::<u32>().cut()?;
+                            match step {
+                                None => (end_index, 1),
+                                Some(step) => (end_index, step.parse::<u32>().cut()?),
+                            }
                         }
+                    };
 
-                        let end = s1.1.parse::<u32>()?;
-                        match s1.2 {
-                            None => {(end, 1)},
-                            Some((_, step)) => {(end, step.parse::<u32>()?)}
-                        }
-                    }
-                };
-
-
-                Ok(IdRangeStep::new(start, end, step,  s.0.len().try_into()?)?)
-            }
-        ).parse_next(i)
+                    Ok(IdRangeStep::new(start_index, end_index, step, len).cut()?)
+                },
+            )
+            .parse_next(i)?
     }
 
     fn is_padded(s: &str) -> bool {
