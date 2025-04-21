@@ -1,4 +1,3 @@
-use super::parsers::CustomError;
 use super::parsers::Parser;
 use crate::idrange::CachedTranslation;
 use crate::idrange::IdRange;
@@ -376,15 +375,6 @@ where
     }
 }
 
-impl From<CustomError<&str>> for NodeSetParseError {
-    fn from(e: CustomError<&str>) -> Self {
-        match e {
-            CustomError::NodeSetError(e) => e,
-            CustomError::Nom(e, _) => NodeSetParseError::Generic(e.to_string()),
-        }
-    }
-}
-
 /// List of names for each dimension of a NodeSet along with an optional suffix
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Default, Debug)]
 pub(crate) struct NodeSetDimensions {
@@ -520,8 +510,8 @@ pub enum NodeSetParseError {
     Generic(String),
 
     /// Padding sizes at both ends of a range do not match (ie `[01-003]`).
-    #[error("mismatched padding: '{0}'")]
-    Padding(String),
+    #[error("mismatched padding: '{0}' and '{1}'")]
+    MismatchedPadding(String, String),
 
     /// A reference was made to a group source that does not exist.
     #[error("Unknown group source: '{0}'")]
@@ -882,5 +872,18 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["a2", "a1a1", "a0a", "h1", "z"]
         );
+    }
+
+    #[test]
+    fn test_nodeset_padding_error() {
+        let err = "nodes[01-003]".parse::<NodeSet>();
+
+        let _ = err.map_err(|e| match e {
+            NodeSetParseError::MismatchedPadding(min, max) => {
+                assert_eq!(min, "01");
+                assert_eq!(max, "003");
+            }
+            _ => panic!("Expected padding error, got {:?}", e),
+        });
     }
 }
