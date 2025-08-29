@@ -29,7 +29,7 @@ pub(crate) enum ProductCoords {
 }
 
 impl ProductCoords {
-    pub(crate) fn iter(&self) -> ProductCoordsIter {
+    pub(crate) fn iter(&self) -> ProductCoordsIter<'_> {
         ProductCoordsIter {
             coords: self,
             idx: 0,
@@ -148,7 +148,7 @@ where
         }
     }
 
-    fn iter(&self) -> std::slice::Iter<T> {
+    fn iter(&self) -> std::slice::Iter<'_, T> {
         self.ranges.iter()
     }
 
