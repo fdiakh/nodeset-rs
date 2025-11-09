@@ -91,22 +91,19 @@ int main(int argc, char **argv)
     char *node;
 
     /* Parse a nodeset */
-    if ((nodeset = ns_parse("node[1-5]&node[5-10],node4", NULL)) == NULL)
-    {
+    if ((nodeset = ns_parse("node[1-5]&node[5-10],node4", NULL)) == NULL) {
         return 1;
     }
 
     /* Iterate over the nodes */
     iter = ns_iter(nodeset);
-    while ((node = ns_iter_next(iter, NULL)) != NULL)
-    {
+    while ((node = ns_iter_next(iter, NULL)) != NULL) {
         printf("%s\n", node);
         ns_free_node(node);
     }
 
     /* Check whether the iterator ended due to an error */
-    if (ns_iter_status(iter) != 0)
-    {
+    if (ns_iter_status(iter) != 0) {
         return 1;
     }
 
