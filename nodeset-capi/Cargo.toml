@@ -3,6 +3,9 @@
 name = "nodeset-capi"
 version = "0.1.0"
 edition = "2021"
+authors = ["Francois Diakhate <fdiakh@gmail.com>"]
+license = "MIT OR Apache-2.0"
+publish = false
 
 [profile.release]
 strip = "symbols"
