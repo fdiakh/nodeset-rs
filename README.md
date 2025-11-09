@@ -25,14 +25,14 @@ operations on them (union, intersection, difference, ...)
 
 ```bash
 $ ns list r[2-4/2]sw1-port[23-24]
-r2esw1-port23 r2sw1-port24 r4sw1-port23 r4sw1-port24
+r2sw1-port23 r2sw1-port24 r4sw1-port23 r4sw1-port24
 ```
 
 - Folding nodes:
 
 ```bash
-$ ns fold r2esw1-port23 r2sw1-port24 r4sw1-port23 r4sw1-port24
-r[2,4]esw1-port[23-24]
+$ ns fold r2sw1-port23 r2sw1-port24 r4sw1-port23 r4sw1-port24
+r[2,4]sw1-port[23-24]
 ```
 
 - Counting nodes:
