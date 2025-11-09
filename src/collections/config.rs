@@ -499,12 +499,9 @@ impl GroupSource for DynamicGroupSource {
             return Default::default();
         };
 
-        let context = |s: &str| {
-            debug!("Lookup {s}");
-            match s {
-                "SOURCE" => Some(self.name.as_str()),
-                _ => None,
-            }
+        let context = |s: &str| match s {
+            "SOURCE" => Some(self.name.as_str()),
+            _ => None,
         };
         let list = env_with_context_no_errors(&list_cmd, context).to_string();
 
