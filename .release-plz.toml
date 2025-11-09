@@ -1,3 +1,4 @@
 [[package]]
 name = "nodeset-capi"
 release = false
+publish = false
