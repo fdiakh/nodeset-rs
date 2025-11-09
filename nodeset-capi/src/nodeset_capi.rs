@@ -370,7 +370,6 @@ pub unsafe extern "C" fn ns_iter_next(
 }
 
 #[no_mangle]
-
 /// Returns whether the iterator has encountered an error
 ///
 /// `ns_iter_status()` returns -1 if the iterator has failed, 0 otherwise.

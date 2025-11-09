@@ -10,13 +10,15 @@ use nom::combinator::{cut, eof, peek};
 use nom::error::ErrorKind;
 use nom::error::FromExternalError;
 use nom::error::ParseError;
+use nom::Parser as NomParser;
+
 use nom::{
     branch::alt,
     bytes::complete::{tag, take_while1},
     character::complete::{char, digit1, multispace0, multispace1, one_of},
     combinator::{all_consuming, map, map_res, opt, value, verify},
     multi::{fold_many0, many0, separated_list1},
-    sequence::{delimited, pair, separated_pair, tuple},
+    sequence::{delimited, pair, separated_pair},
     IResult,
 };
 use std::convert::TryInto;
@@ -52,7 +54,8 @@ impl<'a> Parser<'a> {
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        let mut ns = all_consuming(|i| self.expr(i))(i)
+        let mut ns = all_consuming(|i| self.expr(i))
+            .parse(i)
             .map(|r| r.1)
             .map_err(|e| match e {
                 nom::Err::Error(e) => NodeSetParseError::from(e),
@@ -72,7 +75,7 @@ impl<'a> Parser<'a> {
             multispace0,
             map_res(
                 fold_many0(
-                    tuple((|i| self.term(i), opt(Self::op))),
+                    (|i| self.term(i), opt(Self::op)),
                     || (None, None, false),
                     |acc, t| {
                         let (ns, op, err) = acc;
@@ -116,7 +119,8 @@ impl<'a> Parser<'a> {
                 },
             ),
             multispace0,
-        )(i)
+        )
+        .parse(i)
     }
 
     fn term<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
@@ -126,7 +130,8 @@ impl<'a> Parser<'a> {
         alt((
             |i| self.group_or_nodeset(i),
             delimited(char('('), |i| self.expr(i), char(')')),
-        ))(i)
+        ))
+        .parse(i)
     }
 
     fn op(i: &str) -> IResult<&str, char, CustomError<&str>> {
@@ -134,21 +139,22 @@ impl<'a> Parser<'a> {
             delimited(multispace0, one_of(",&!^"), multispace0),
             delimited(multispace1, one_of("-"), multispace1),
             value(' ', multispace1),
-        ))(i)
+        ))
+        .parse(i)
     }
 
     fn group_or_nodeset<T>(self, i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((Self::rangeset, Self::nodeset, |i| self.group(i)))(i)
+        alt((Self::rangeset, Self::nodeset, |i| self.group(i))).parse(i)
     }
 
     fn nodeset_or_rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
     where
         T: IdRange + PartialEq + Clone + fmt::Display + fmt::Debug,
     {
-        alt((Self::nodeset, Self::rangeset))(i)
+        alt((Self::nodeset, Self::rangeset)).parse(i)
     }
 
     fn rangeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
@@ -179,7 +185,8 @@ impl<'a> Parser<'a> {
                 ns.bases.entry(dims).or_insert(IdSetKind::Single(range));
                 Ok(ns)
             },
-        )(i)
+        )
+        .parse(i)
     }
 
     fn nodeset<T>(i: &str) -> IResult<&str, NodeSet<T>, CustomError<&str>>
@@ -208,14 +215,14 @@ impl<'a> Parser<'a> {
 
         map_res(
             verify(
-                tuple((
+                (
                     opt(alt((Self::id_range_bracketed_affix, Self::id_standalone))),
                     many0(pair(
                         parser,
                         alt((Self::id_range_bracketed_affix, Self::id_standalone)),
                     )),
                     opt(parser),
-                )),
+                ),
                 |(_, components, suffix)| {
                     // This is a rangeset
                     if components.is_empty() && suffix.is_none() {
@@ -268,7 +275,8 @@ impl<'a> Parser<'a> {
 
                 Ok(ns)
             },
-        )(i)
+        )
+        .parse(i)
     }
 
     #[auto_enum]
@@ -323,7 +331,8 @@ impl<'a> Parser<'a> {
                 )),
             ),
             |r| r.1,
-        )(i)
+        )
+        .parse(i)
     }
 
     #[allow(clippy::type_complexity)]
@@ -342,7 +351,8 @@ impl<'a> Parser<'a> {
                 separated_pair(Self::sourceset, char(':'), opt(Self::nodeset_or_rangeset)),
                 |source| (Some(source.0), Some(source.1.unwrap_or_default())),
             ),
-        ))(i)
+        ))
+        .parse(i)
     }
 
     fn node_component(i: &str) -> IResult<&str, &str, CustomError<&str>> {
@@ -356,7 +366,7 @@ impl<'a> Parser<'a> {
     #[allow(clippy::type_complexity)]
     fn id_range_bracketed_affix(i: &str) -> IResult<&str, IdRangeComponent, CustomError<&str>> {
         map_res(
-            tuple((
+            (
                 opt(digit1),
                 delimited(
                     char('['),
@@ -364,7 +374,7 @@ impl<'a> Parser<'a> {
                     char(']'),
                 ),
                 opt(digit1),
-            )),
+            ),
             |(high, ranges, low)| {
                 let low = low
                     .map(|s| s.parse::<u32>().map(|value| (s.len(), value)))
@@ -380,7 +390,8 @@ impl<'a> Parser<'a> {
 
                 Ok(IdRangeComponent::IdRange((high, ranges, low)))
             },
-        )(i)
+        )
+        .parse(i)
     }
 
     #[allow(clippy::type_complexity)]
@@ -394,7 +405,8 @@ impl<'a> Parser<'a> {
                     d.len() as u32,
                 )?))
             },
-        )(i)
+        )
+        .parse(i)
     }
 
     fn id_range_step_rangeset(i: &str) -> IResult<&str, IdRangeComponent, CustomError<&str>> {
@@ -403,19 +415,20 @@ impl<'a> Parser<'a> {
             |idrs| -> Result<IdRangeComponent, NodeSetParseError> {
                 Ok(IdRangeComponent::IdRange((None, vec![idrs], None)))
             },
-        )(i)
+        )
+        .parse(i)
     }
 
     #[allow(clippy::type_complexity)]
     fn id_range_step(i: &str) -> IResult<&str, IdRangeStep, CustomError<&str>> {
         map_res(pair(digit1,
-                         opt(tuple((
+                         opt((
                                  tag("-"),
                                 digit1,
                                 opt(
                                     pair(
                                         tag("/"),
-                                        digit1)))))),
+                                        digit1))))),
 
                         |s: (&str, Option<(&str, &str, Option<(&str, &str)>)>) | -> Result<IdRangeStep, NodeSetParseError> {
                             let start = s.0.parse::<u32>()?;
@@ -441,7 +454,7 @@ impl<'a> Parser<'a> {
 
                             Ok(IdRangeStep::new(start, end, step,  s.0.len().try_into()?)?)
                         }
-                        )(i)
+                        ).parse(i)
     }
 
     fn is_padded(s: &str) -> bool {

@@ -49,10 +49,7 @@ where
     type Item = T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut next = match self.a.next() {
-            Some(v) => v,
-            None => return None,
-        };
+        let mut next = self.a.next()?;
 
         let mut min: &T;
         loop {
@@ -67,10 +64,7 @@ where
             };
 
             while next == min {
-                next = match self.a.next() {
-                    Some(v) => v,
-                    None => return None,
-                };
+                next = self.a.next()?;
             }
         }
     }
