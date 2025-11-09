@@ -478,10 +478,10 @@ impl GroupSource for DynamicGroupSource {
         let output = Command::new("/bin/sh").arg("-c").arg(&map).output()?;
 
         if !output.status.success() {
-            return Err(NodeSetParseError::Command(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Command '{}' returned non-zero exit code", map),
-            )));
+            return Err(NodeSetParseError::Command(std::io::Error::other(format!(
+                "Command '{}' returned non-zero exit code",
+                map
+            ))));
         }
 
         let res = String::from_utf8_lossy(&output.stdout);
