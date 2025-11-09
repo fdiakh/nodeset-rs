@@ -8,6 +8,7 @@
 int main(int argc, char **argv) {
     char *error;
     char *node;
+    int rc;
     NodeSetIter *iter;
     NodeSet *nodeset1, *nodeset2, *intersection;
 
@@ -36,10 +37,15 @@ int main(int argc, char **argv) {
     if ((nodeset2 = ns_parse(argv[2], &error)) == NULL) {
         fprintf(stderr, "error: %s\n", error);
         ns_free_error(error);
+        ns_free_nodeset(nodeset1);
         return 1;
     }
 
+    /* Compute the intersection between both nodesets */
     intersection = ns_intersection(nodeset1, nodeset2);
+    ns_free_nodeset(nodeset2);
+    ns_free_nodeset(nodeset1);
+
     /* Create an iterator over the nodes in the nodeset */
     iter = ns_iter(intersection);
 
@@ -53,14 +59,14 @@ int main(int argc, char **argv) {
     if (ns_iter_status(iter) != 0) {
         fprintf(stderr, "error: %s\n", error);
         ns_free_error(error);
-        return 1;
+        rc = 1;
+    } else {
+        rc = 0;
     }
 
     /* Free the iterator and nodeset */
     ns_free_iter(iter);
     ns_free_nodeset(intersection);
-    ns_free_nodeset(nodeset1);
-    ns_free_nodeset(nodeset2);
 
-    return 0;
+    return rc;
 }
