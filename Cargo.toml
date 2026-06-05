@@ -15,14 +15,19 @@ rust-version = "1.82"
 [[bin]]
 name = "ns"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+cli = ["dep:clap", "dep:eyre", "dep:env_logger", "log/release_max_level_debug"]
 
 [dependencies]
 itertools = "0.14.0"
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { version = "4.5.51", features = ["derive"], optional = true }
 nom = "8.0.0"
-eyre = "0.6.12"
-log = { version = "0.4.28", features = ["release_max_level_debug"] }
-env_logger = "0.11.8"
+eyre = { version = "0.6.12", optional = true }
+log = "0.4.28"
+env_logger = { version = "0.11.8", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.17"
 shellexpand = "3.1.1"
@@ -32,6 +37,7 @@ serde_yaml = "0.9.34"
 auto_enums = "0.8.7"
 
 [dev-dependencies]
+env_logger = "0.11.8"
 tempfile = "3.23.0"
 
 

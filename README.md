@@ -71,6 +71,19 @@ To compute and display the intersection of two nodesets
     assert_eq!(inter.to_string(), "node[10,12,14]");
 ```
 
+To build only the Rust library without the `ns` command-line dependencies:
+
+```bash
+cargo build -p nodeset --lib --no-default-features
+```
+
+Projects that want to depend on the Rust library without pulling in the `ns`
+command-line dependencies can disable default features:
+
+```toml
+nodeset = { version = "0.6", default-features = false }
+```
+
 # C bindings
 
 Along with the CLI binary (`ns`), running `cargo build --all` from the crate

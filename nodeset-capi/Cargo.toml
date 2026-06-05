@@ -16,4 +16,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 anyhow = "1.0.100"
-nodeset = { path = "../" }
+nodeset = { path = "../", default-features = false }
